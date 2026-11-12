@@ -1,0 +1,21 @@
+services:
+  bot:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    # Пока бот работает в консоли, ему нужен ввод с клавиатуры.
+    stdin_open: true
+    tty: true
+    depends_on:
+      - qdrant
+
+  # Векторная база для текстов законов. Понадобится на шаге RAG.
+  # Порты наружу не открыты: к базе может обратиться только контейнер бота.
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+volumes:
+  qdrant_data:
