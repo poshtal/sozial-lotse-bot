@@ -4,4 +4,6 @@ export class BotReply {
   messages: string[] = [];
   /** Варианты ответа: оболочка показывает их кнопками. */
   options: string[] = [];
+  /** Разговор закончен или стёрт: оболочка предлагает начать заново. */
+  finished: boolean = false;
 }

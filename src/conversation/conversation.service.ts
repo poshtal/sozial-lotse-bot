@@ -7,7 +7,7 @@ import {
   FindingNode,
   QuestionNode,
 } from '../questionnaire/types/question-node';
-import { addDays, parseGermanDate, toUtcDay } from '../rules/date.utils';
+import { addDays, formatGermanDate, toUtcDay } from '../rules/date.utils';
 import { RulesService } from '../rules/rules.service';
 import { AnwartschaftResult } from '../rules/types/anwartschaft-result';
 import { EmploymentPeriod } from '../rules/types/employment-period';
@@ -17,13 +17,22 @@ import {
   COMMAND_FORGET,
   COMMAND_START,
   FORGET_BUTTON_LABEL,
+  FORGET_CONFIRM_NO,
+  FORGET_CONFIRM_YES,
   MAX_MESSAGE_LENGTH,
+  START_BUTTON_LABEL,
   TEXT_BAD_DATE,
   TEXT_CHOOSE_OPTION,
+  TEXT_DATE_SAVED,
+  TEXT_FORGET_CANCELLED,
+  TEXT_FORGET_CONFIRM,
   TEXT_FORGOTTEN,
   TEXT_FUTURE_DATE,
+  TEXT_NOTHING_TO_FORGET,
+  TEXT_PERIODS_SAVED,
   TEXT_TOO_LONG,
 } from './constants/conversation.constants';
+import { parseHumanDate } from './human-date.parser';
 import { parsePeriods, PeriodsParseResult } from './periods.parser';
 import { BotReply } from './types/bot-reply';
 
@@ -46,21 +55,48 @@ export class ConversationService {
     const input: string = text.trim();
     const reply: BotReply = new BotReply();
 
-    if (this.isForgetCommand(input)) {
-      this.sessions.forget(chatId);
-      reply.messages.push(TEXT_FORGOTTEN);
+    // Команда /start или кнопка «Начать заново»: всегда с начала.
+    if (this.isStartCommand(input)) {
+      this.startOver(chatId, reply);
       return reply;
     }
 
     const session: Session | undefined = this.sessions.get(chatId);
 
-    // Новый разговор, команда /start или прошёл час тишины: начинаем с начала.
-    if (!session || input === COMMAND_START) {
-      const newSession: Session = this.sessions.start(
-        chatId,
-        this.questionnaire.getStartId(),
-      );
-      this.showFrom(chatId, newSession, reply);
+    if (this.isForgetCommand(input)) {
+      if (!session) {
+        reply.messages.push(TEXT_NOTHING_TO_FORGET);
+        reply.finished = true;
+        return reply;
+      }
+
+      // Не стираем сразу: кнопка всегда на виду, её легко нажать случайно.
+      session.confirmingForget = true;
+      this.sessions.touch(session);
+      reply.messages.push(TEXT_FORGET_CONFIRM);
+      reply.options = [FORGET_CONFIRM_YES, FORGET_CONFIRM_NO];
+      return reply;
+    }
+
+    // Новый разговор или прошёл час тишины: начинаем с начала.
+    if (!session) {
+      this.startOver(chatId, reply);
+      return reply;
+    }
+
+    if (session.confirmingForget) {
+      session.confirmingForget = false;
+
+      if (input.toLowerCase() === FORGET_CONFIRM_YES.toLowerCase()) {
+        this.sessions.forget(chatId);
+        reply.messages.push(TEXT_FORGOTTEN);
+        reply.finished = true;
+        return reply;
+      }
+
+      this.sessions.touch(session);
+      reply.messages.push(TEXT_FORGET_CANCELLED);
+      this.showQuestion(this.questionnaire.getNode(session.nodeId), reply);
       return reply;
     }
 
@@ -68,7 +104,7 @@ export class ConversationService {
 
     if (input.length > MAX_MESSAGE_LENGTH) {
       reply.messages.push(TEXT_TOO_LONG);
-      this.showQuestion(this.questionnaire.getNode(session.nodeId), reply);
+      this.showOptions(this.questionnaire.getNode(session.nodeId), reply);
       return reply;
     }
 
@@ -81,14 +117,23 @@ export class ConversationService {
     );
 
     if (!nextId) {
-      // Ответ не подошёл: в reply уже лежит объяснение, повторяем вопрос.
-      this.showQuestion(node, reply);
+      // Ответ не подошёл: в reply уже лежит объяснение. Сам вопрос не
+      // повторяем, он остался выше в чате. Возвращаем только кнопки.
+      this.showOptions(node, reply);
       return reply;
     }
 
     session.nodeId = nextId;
     this.showFrom(chatId, session, reply);
     return reply;
+  }
+
+  private startOver(chatId: string, reply: BotReply): void {
+    const session: Session = this.sessions.start(
+      chatId,
+      this.questionnaire.getStartId(),
+    );
+    this.showFrom(chatId, session, reply);
   }
 
   /**
@@ -118,7 +163,7 @@ export class ConversationService {
       }
 
       case 'date': {
-        const date: Date | null = parseGermanDate(input);
+        const date: Date | null = parseHumanDate(input, this.today());
 
         if (!date) {
           reply.messages.push(TEXT_BAD_DATE);
@@ -131,6 +176,10 @@ export class ConversationService {
         }
 
         session.answers[node.saveAs] = date;
+        // Дата понята не дословно, поэтому показываем, как именно.
+        reply.messages.push(
+          TEXT_DATE_SAVED.replace('{date}', formatGermanDate(date)),
+        );
         return node.next;
       }
 
@@ -143,6 +192,19 @@ export class ConversationService {
         }
 
         session.answers[node.saveAs] = parsed.periods;
+
+        if (parsed.periods.length > 0) {
+          reply.messages.push(
+            [
+              TEXT_PERIODS_SAVED,
+              ...parsed.periods.map(
+                (p: EmploymentPeriod): string =>
+                  `${formatGermanDate(p.start)} - ${formatGermanDate(p.end)}`,
+              ),
+            ].join('\n'),
+          );
+        }
+
         return node.next;
       }
 
@@ -175,6 +237,7 @@ export class ConversationService {
         case 'end':
           reply.messages.push(node.text);
           this.sessions.forget(chatId);
+          reply.finished = true;
           return;
 
         default:
@@ -195,6 +258,10 @@ export class ConversationService {
       reply.messages.push(node.text);
     }
 
+    this.showOptions(node, reply);
+  }
+
+  private showOptions(node: QuestionNode, reply: BotReply): void {
     if (node.type === 'choice') {
       reply.options = node.options.map((o: ChoiceOption): string => o.label);
     }
@@ -235,6 +302,13 @@ export class ConversationService {
         (o: ChoiceOption): boolean =>
           o.label.toLowerCase() === input.toLowerCase(),
       )
+    );
+  }
+
+  private isStartCommand(input: string): boolean {
+    return (
+      input === COMMAND_START ||
+      input.toLowerCase() === START_BUTTON_LABEL.toLowerCase()
     );
   }
 

@@ -4,6 +4,8 @@ export class Session {
   nodeId: string;
   /** Ответы человека: ключ это saveAs из дерева вопросов. */
   answers: Record<string, unknown> = {};
+  /** Бот спросил «Точно стереть?» и ждёт ответа. */
+  confirmingForget: boolean = false;
   /** Время последнего сообщения, миллисекунды. */
   lastActivity: number;
 }

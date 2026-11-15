@@ -1,10 +1,6 @@
 import { EmploymentPeriod } from '../rules/types/employment-period';
-import { parseGermanDate } from '../rules/date.utils';
-import {
-  MAX_PERIODS,
-  NOW_WORD,
-  TEXT_NO_JOBS_WORDS,
-} from './constants/conversation.constants';
+import { MAX_PERIODS, TEXT_NO_JOBS_WORDS } from './constants/conversation.constants';
+import { parseHumanDate } from './human-date.parser';
 
 export class PeriodsParseResult {
   periods: EmploymentPeriod[] = [];
@@ -12,14 +8,21 @@ export class PeriodsParseResult {
   error?: string;
 }
 
+/** Слова, которые означают «работаю там до сих пор». */
+const NOW_WORDS: string[] = ['сейчас', 'сегодня'];
+
+/** Обороты с тем же смыслом. Перед разбором заменяются на «по сейчас». */
+const NOW_PHRASES: RegExp =
+  /\s+(по сей день|до сих пор|по настоящее время|по сегодняшний день)$/;
+
 /**
- * Разбирает ответ вида:
+ * Разбирает список мест работы, по одному в строке:
  *   15.08.2024 - 30.09.2024
- *   01.11.2024 - сейчас
+ *   с 1 ноября 2024 по 1 июля 2025
+ *   01.11.2024 — сейчас
  *
- * Временное решение для консольного среза. Когда подключится LLM,
- * человек сможет писать свободным текстом, а этот разбор останется
- * запасным вариантом.
+ * Запасной разбор без LLM. Когда подключится модель, она будет понимать
+ * и совсем свободный текст, а этот код останется на случай её недоступности.
  */
 export function parsePeriods(text: string, today: Date): PeriodsParseResult {
   const result: PeriodsParseResult = new PeriodsParseResult();
@@ -45,30 +48,58 @@ export function parsePeriods(text: string, today: Date): PeriodsParseResult {
   }
 
   for (const line of lines) {
-    const parts: string[] = line.split(/\s*[-–—]\s*/);
-    const start: Date | null =
-      parts.length === 2 ? parseGermanDate(parts[0]) : null;
-    const end: Date | null =
-      parts.length !== 2
-        ? null
-        : parts[1].toLowerCase() === NOW_WORD
-          ? today
-          : parseGermanDate(parts[1]);
+    const period: EmploymentPeriod | null = parseOnePeriod(line, today);
 
-    if (!start || !end) {
-      result.error = `Не смог разобрать строку «${line}». Нужен вид: 15.08.2024 - 30.09.2024`;
+    if (!period) {
+      result.error = `Не смог разобрать строку «${line}». Напиши начало и конец, например: 15.08.2024 - 30.09.2024 или «с 15 августа 2024 по 30 сентября 2024».`;
       result.periods = [];
       return result;
     }
 
-    if (start.getTime() > end.getTime()) {
+    if (period.start.getTime() > period.end.getTime()) {
       result.error = `В строке «${line}» начало позже конца. Проверь даты, пожалуйста.`;
       result.periods = [];
       return result;
     }
 
-    result.periods.push({ start, end });
+    result.periods.push(period);
   }
 
   return result;
+}
+
+function parseOnePeriod(line: string, today: Date): EmploymentPeriod | null {
+  const text: string = line
+    .trim()
+    .toLowerCase()
+    .replace(/^(с|со|от) /, '')
+    .replace(NOW_PHRASES, ' по сейчас');
+
+  // Способы разделить строку на начало и конец, от самого явного к спорному.
+  // Простой дефис стоит последним: он бывает и внутри даты (7-11-2026).
+  const separators: RegExp[] = [
+    /\s*[–—]\s*/,
+    /\s+(?:по|до)\s+/,
+    /\s+-\s+/,
+    /-/,
+  ];
+
+  for (const separator of separators) {
+    const parts: string[] = text.split(separator);
+
+    if (parts.length !== 2) {
+      continue;
+    }
+
+    const start: Date | null = parseHumanDate(parts[0], today);
+    const end: Date | null = NOW_WORDS.includes(parts[1].trim())
+      ? today
+      : parseHumanDate(parts[1], today);
+
+    if (start && end) {
+      return { start, end };
+    }
+  }
+
+  return null;
 }

@@ -82,7 +82,9 @@ describe('ConversationService', () => {
     say('4');
 
     const badDate: BotReply = say('в июле');
-    expect(allText(badDate)).toContain('ДД.ММ.ГГГГ');
+    expect(allText(badDate)).toContain('Не смог разобрать дату');
+    // Вопрос не повторяется целиком: только объяснение.
+    expect(badDate.messages).toHaveLength(1);
 
     const future: BotReply = say('01.01.2030');
     expect(allText(future)).toContain('ещё не наступила');
@@ -92,15 +94,77 @@ describe('ConversationService', () => {
     expect(allText(badPeriod)).toContain('Не смог разобрать строку');
   });
 
-  it('«Забудь всё» стирает ответы в любой момент', () => {
+  it('понимает даты, написанные по-человечески', () => {
+    say('/start');
+    say('Окей');
+    say('Недавно уволили, ничего не получаю');
+
+    const date: BotReply = say('2 июля этого года');
+    expect(allText(date)).toContain('Записал дату: 02.07.2025.');
+
+    const finding: BotReply = say(
+      'с 15 августа 2024 по 30 сентября 2024\n1.11.24 — 1 июля',
+    );
+    expect(allText(finding)).toContain('15.08.2024 - 30.09.2024');
+    expect(allText(finding)).toContain('01.11.2024 - 01.07.2025');
+    expect(allText(finding)).toContain('Не хватает 70 дн.');
+  });
+
+  it('«Забудь всё» сначала переспрашивает, потом стирает', () => {
     say('/start');
     say('Окей');
     say('Недавно уволили, ничего не получаю');
     say('02.07.2025');
 
-    const reply: BotReply = say('Забудь всё');
-    expect(allText(reply)).toContain('стёр твои ответы');
+    const confirm: BotReply = say('Забудь всё');
+    expect(allText(confirm)).toContain('Точно стереть');
+    expect(confirm.options).toEqual(['Да, стереть', 'Нет, продолжим']);
+    expect(sessions.get(CHAT)).toBeDefined();
+
+    const done: BotReply = say('Да, стереть');
+    expect(allText(done)).toContain('стёр твои ответы');
+    expect(done.finished).toBe(true);
     expect(sessions.get(CHAT)).toBeUndefined();
+  });
+
+  it('отказ от стирания возвращает к тому же вопросу', () => {
+    say('/start');
+    say('Окей');
+    say('Недавно уволили, ничего не получаю');
+    say('/forget');
+
+    const back: BotReply = say('Нет, продолжим');
+    expect(allText(back)).toContain('ничего не стираю');
+    expect(allText(back)).toContain('С какого дня ты без работы');
+
+    // Ответ, данный до этого, не потерялся: разговор идёт дальше.
+    const next: BotReply = say('02.07.2025');
+    expect(allText(next)).toContain('Перечисли места работы');
+  });
+
+  it('«Забудь всё» без разговора честно говорит, что стирать нечего', () => {
+    const reply: BotReply = say('Забудь всё');
+
+    expect(allText(reply)).toContain('Стирать нечего');
+    expect(reply.finished).toBe(true);
+  });
+
+  it('«Начать заново» и /start начинают с плашки в любой момент', () => {
+    say('/start');
+    say('Окей');
+
+    const again: BotReply = say('Начать заново');
+    expect(again.options).toEqual(['Окей']);
+    expect(again.finished).toBe(false);
+  });
+
+  it('в конце разговора ядро сообщает оболочке, что он закончен', () => {
+    say('/start');
+    say('Окей');
+    say('Работаю');
+    const end: BotReply = say('нет');
+
+    expect(end.finished).toBe(true);
   });
 
   it('после часа тишины разговор начинается заново', () => {

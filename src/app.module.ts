@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ClockModule } from './clock/clock.module';
 import { ConsoleModule } from './console/console.module';
 import { ConversationModule } from './conversation/conversation.module';
+import { TelegramModule } from './telegram/telegram.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { ConversationModule } from './conversation/conversation.module';
     ClockModule,
     ConversationModule,
     ConsoleModule,
+    TelegramModule,
   ],
 })
 export class AppModule {}
