@@ -4,6 +4,11 @@ import { parseHumanDate } from './human-date.parser';
 
 export class PeriodsParseResult {
   periods: EmploymentPeriod[] = [];
+  /**
+   * true, если в какой-то строке было только начало, и конец бот подставил
+   * сам. Такое предположение нужно показать человеку и переспросить.
+   */
+  assumedEnd: boolean = false;
   /** Текст ошибки для человека. Пусто, если всё разобрано. */
   error?: string;
 }
@@ -20,11 +25,16 @@ const NOW_PHRASES: RegExp =
  *   15.08.2024 - 30.09.2024
  *   с 1 ноября 2024 по 1 июля 2025
  *   01.11.2024 — сейчас
+ *   с 1 июля 2024          (только начало: концом становится assumedEndDate)
  *
  * Запасной разбор без LLM. Когда подключится модель, она будет понимать
  * и совсем свободный текст, а этот код останется на случай её недоступности.
  */
-export function parsePeriods(text: string, today: Date): PeriodsParseResult {
+export function parsePeriods(
+  text: string,
+  today: Date,
+  assumedEndDate: Date = today,
+): PeriodsParseResult {
   const result: PeriodsParseResult = new PeriodsParseResult();
   const normalized: string = text.trim().toLowerCase();
 
@@ -48,17 +58,29 @@ export function parsePeriods(text: string, today: Date): PeriodsParseResult {
   }
 
   for (const line of lines) {
-    const period: EmploymentPeriod | null = parseOnePeriod(line, today);
+    let period: EmploymentPeriod | null = parseOnePeriod(line, today);
+
+    // Вся строка это одна дата: человек написал только начало работы.
+    if (!period) {
+      const startOnly: Date | null = parseHumanDate(line, today);
+
+      if (startOnly) {
+        period = { start: startOnly, end: assumedEndDate };
+        result.assumedEnd = true;
+      }
+    }
 
     if (!period) {
       result.error = `Не смог разобрать строку «${line}». Напиши начало и конец, например: 15.08.2024 - 30.09.2024 или «с 15 августа 2024 по 30 сентября 2024».`;
       result.periods = [];
+      result.assumedEnd = false;
       return result;
     }
 
     if (period.start.getTime() > period.end.getTime()) {
       result.error = `В строке «${line}» начало позже конца. Проверь даты, пожалуйста.`;
       result.periods = [];
+      result.assumedEnd = false;
       return result;
     }
 
@@ -79,7 +101,7 @@ function parseOnePeriod(line: string, today: Date): EmploymentPeriod | null {
   // Простой дефис стоит последним: он бывает и внутри даты (7-11-2026).
   const separators: RegExp[] = [
     /\s*[–—]\s*/,
-    /\s+(?:по|до)\s+/,
+    /\s+(?:и\s+)?(?:по|до)\s+/,
     /\s+-\s+/,
     /-/,
   ];

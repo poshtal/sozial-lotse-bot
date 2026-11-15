@@ -14,7 +14,7 @@ export const TEXT_FORGET_CONFIRM: string =
   'Точно стереть твои ответы? Разговор начнётся заново.';
 export const TEXT_FORGET_CANCELLED: string = 'Хорошо, ничего не стираю. Продолжаем.';
 export const TEXT_NOTHING_TO_FORGET: string =
-  'Стирать нечего: сейчас у меня нет твоих ответов. Чтобы начать, напиши /start.';
+  'Моя память уже пуста: твоих ответов у меня нет. Чтобы начать, напиши /start.';
 export const TEXT_TOO_LONG: string =
   'Сообщение слишком длинное. Напиши, пожалуйста, короче.';
 export const TEXT_CHOOSE_OPTION: string =
@@ -25,4 +25,13 @@ export const TEXT_FUTURE_DATE: string =
   'Эта дата ещё не наступила. Напиши день, с которого ты уже без работы.';
 export const TEXT_DATE_SAVED: string = 'Записал дату: {date}.';
 export const TEXT_PERIODS_SAVED: string = 'Записал:';
+export const ANSWER_CONFIRM_YES: string = 'Да, верно';
+export const ANSWER_CONFIRM_NO: string = 'Нет, напишу иначе';
+export const TEXT_PERIODS_ASSUMED: string = 'Я понял так:';
+export const TEXT_ASSUMED_UNTIL_UNEMPLOYED: string =
+  'Конец ты не написал, поэтому я поставил {date}: это последний день перед тем, как ты остался без работы. Верно?';
+export const TEXT_ASSUMED_UNTIL_TODAY: string =
+  'Конец ты не написал, поэтому я поставил сегодняшний день, {date}: получается, ты работаешь там до сих пор. Верно?';
+export const TEXT_ANSWER_REJECTED: string =
+  'Хорошо, тогда напиши начало и конец, например: 15.08.2024 - 30.09.2024.';
 export const TEXT_NO_JOBS_WORDS: string[] = ['нет', 'не работал', 'не работала'];

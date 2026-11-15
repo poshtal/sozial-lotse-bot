@@ -7,6 +7,9 @@ services:
     # Нужно для консольного режима: ввод с клавиатуры.
     stdin_open: true
     tty: true
+    # Папка data подключена снаружи: вопросы и законы можно менять без пересборки.
+    volumes:
+      - ./data:/app/data:ro
     depends_on:
       - qdrant
 

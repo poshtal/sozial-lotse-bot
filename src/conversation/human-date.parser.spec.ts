@@ -23,6 +23,8 @@ describe('parseHumanDate', () => {
     ['7 листопада 2025', '07.11.2025'],
     ['7. November 2025', '07.11.2025'],
     ['1 März 2026', '01.03.2026'],
+    ['с 7 ноября', '07.11.2026'],
+    ['от 7.11.2026', '07.11.2026'],
     ['сегодня', '15.11.2026'],
     ['вчера', '14.11.2026'],
   ])('%s', (input: string, expected: string) => {
@@ -58,6 +60,8 @@ describe('parsePeriods', () => {
     'с 15 августа 2024 по 30 сентября 2024',
     'С 15.08.2024 до 30.09.2024',
     '15-08-2024 - 30-09-2024',
+    '15 августа 24 и по 30 сентября 24',
+    'с 15 августа 24 года по 30 сентября 24',
   ])('%s', (line: string) => {
     const result = parsePeriods(line, TODAY);
 
@@ -70,6 +74,19 @@ describe('parsePeriods', () => {
   it('«сейчас» и «по сей день» означают сегодня', () => {
     expect(parsePeriods('01.03.2026 - сейчас', TODAY).periods[0].end).toEqual(TODAY);
     expect(parsePeriods('с 1 марта 2026 по сей день', TODAY).periods[0].end).toEqual(TODAY);
+  });
+
+  it('строка с одним началом: конец подставляется и это помечается', () => {
+    const assumedEnd: Date = d('06.11.2026');
+    const result = parsePeriods('с 1 июля 24 года', TODAY, assumedEnd);
+
+    expect(result.error).toBeUndefined();
+    expect(result.assumedEnd).toBe(true);
+    expect(result.periods).toEqual([{ start: d('01.07.2024'), end: assumedEnd }]);
+  });
+
+  it('полный период предположением не считается', () => {
+    expect(parsePeriods('01.07.2024 - 15.08.2024', TODAY).assumedEnd).toBe(false);
   });
 
   it('объясняет, какую строку не понял', () => {

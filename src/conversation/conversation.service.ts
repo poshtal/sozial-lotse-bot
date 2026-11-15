@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
+import { AnswerService } from '../answer/answer.service';
+import { Answer } from '../answer/types/answer';
 import { ClockService } from '../clock/clock.service';
 import { QuestionnaireService } from '../questionnaire/questionnaire.service';
 import {
+  AskNode,
+  AskTopic,
   ChoiceNode,
   ChoiceOption,
   FindingNode,
@@ -11,9 +15,11 @@ import { addDays, formatGermanDate, toUtcDay } from '../rules/date.utils';
 import { RulesService } from '../rules/rules.service';
 import { AnwartschaftResult } from '../rules/types/anwartschaft-result';
 import { EmploymentPeriod } from '../rules/types/employment-period';
-import { Session } from '../session/session';
+import { PendingAnswer, Session } from '../session/session';
 import { SessionService } from '../session/session.service';
 import {
+  ANSWER_CONFIRM_NO,
+  ANSWER_CONFIRM_YES,
   COMMAND_FORGET,
   COMMAND_START,
   FORGET_BUTTON_LABEL,
@@ -21,6 +27,9 @@ import {
   FORGET_CONFIRM_YES,
   MAX_MESSAGE_LENGTH,
   START_BUTTON_LABEL,
+  TEXT_ANSWER_REJECTED,
+  TEXT_ASSUMED_UNTIL_TODAY,
+  TEXT_ASSUMED_UNTIL_UNEMPLOYED,
   TEXT_BAD_DATE,
   TEXT_CHOOSE_OPTION,
   TEXT_DATE_SAVED,
@@ -29,6 +38,7 @@ import {
   TEXT_FORGOTTEN,
   TEXT_FUTURE_DATE,
   TEXT_NOTHING_TO_FORGET,
+  TEXT_PERIODS_ASSUMED,
   TEXT_PERIODS_SAVED,
   TEXT_TOO_LONG,
 } from './constants/conversation.constants';
@@ -49,9 +59,10 @@ export class ConversationService {
     private readonly rules: RulesService,
     private readonly sessions: SessionService,
     private readonly clock: ClockService,
+    private readonly answers: AnswerService,
   ) {}
 
-  handleMessage(chatId: string, text: string): BotReply {
+  async handleMessage(chatId: string, text: string): Promise<BotReply> {
     const input: string = text.trim();
     const reply: BotReply = new BotReply();
 
@@ -65,8 +76,10 @@ export class ConversationService {
 
     if (this.isForgetCommand(input)) {
       if (!session) {
+        // Ответов уже нет, но переписка на экране могла остаться.
         reply.messages.push(TEXT_NOTHING_TO_FORGET);
         reply.finished = true;
+        reply.eraseChat = true;
         return reply;
       }
 
@@ -91,6 +104,7 @@ export class ConversationService {
         this.sessions.forget(chatId);
         reply.messages.push(TEXT_FORGOTTEN);
         reply.finished = true;
+        reply.eraseChat = true;
         return reply;
       }
 
@@ -109,12 +123,45 @@ export class ConversationService {
     }
 
     const node: QuestionNode = this.questionnaire.getNode(session.nodeId);
+
+    // Свободные вопросы: тема кнопкой или свой вопрос, ответ по базе знаний.
+    if (node.type === 'ask') {
+      await this.handleAsk(node, input, chatId, session, reply);
+      return reply;
+    }
+
+    // Бот понял ответ с предположением и ждёт «Да, верно» или «Нет».
+    if (session.pendingAnswer) {
+      const pending: PendingAnswer = session.pendingAnswer;
+      session.pendingAnswer = undefined;
+
+      if (input.toLowerCase() === ANSWER_CONFIRM_YES.toLowerCase()) {
+        session.answers[pending.saveAs] = pending.value;
+        session.nodeId = pending.next;
+        this.showFrom(chatId, session, reply);
+        return reply;
+      }
+
+      if (input.toLowerCase() === ANSWER_CONFIRM_NO.toLowerCase()) {
+        reply.messages.push(TEXT_ANSWER_REJECTED);
+        return reply;
+      }
+
+      // Человек не нажал кнопку, а сразу написал по-другому:
+      // разбираем это как новый ответ на тот же вопрос.
+    }
+
     const nextId: string | undefined = this.acceptAnswer(
       node,
       input,
       session,
       reply,
     );
+
+    if (session.pendingAnswer) {
+      // Вопрос «Верно?» с кнопками уже лежит в reply.
+      return reply;
+    }
 
     if (!nextId) {
       // Ответ не подошёл: в reply уже лежит объяснение. Сам вопрос не
@@ -126,6 +173,37 @@ export class ConversationService {
     session.nodeId = nextId;
     this.showFrom(chatId, session, reply);
     return reply;
+  }
+
+  private async handleAsk(
+    node: AskNode,
+    input: string,
+    chatId: string,
+    session: Session,
+    reply: BotReply,
+  ): Promise<void> {
+    if (input.toLowerCase() === node.exitLabel.toLowerCase()) {
+      session.nodeId = node.next;
+      this.showFrom(chatId, session, reply);
+      return;
+    }
+
+    // Кнопка темы: вопрос и нужные параграфы заданы заранее в дереве.
+    // Любой другой текст: вопрос человека, параграфы ищет база знаний.
+    const topic: AskTopic | undefined = node.topics.find(
+      (t: AskTopic, index: number): boolean =>
+        t.label.toLowerCase() === input.toLowerCase() ||
+        input === String(index + 1),
+    );
+
+    const answer: Answer = topic
+      ? await this.answers.answer(topic.question, topic.chunks)
+      : await this.answers.answer(input);
+
+    reply.messages.push(answer.text);
+    reply.messages.push(node.againText);
+    reply.answersQuestion = true;
+    this.showOptions(node, reply);
   }
 
   private startOver(chatId: string, reply: BotReply): void {
@@ -184,10 +262,42 @@ export class ConversationService {
       }
 
       case 'periods': {
-        const parsed: PeriodsParseResult = parsePeriods(input, this.today());
+        // Если человек написал только начало, концом считаем последний день
+        // перед увольнением. Если он работает, то сегодняшний день.
+        const unemployedSince: Date | undefined = session.answers[
+          'unemployedSince'
+        ] as Date | undefined;
+        const assumedEnd: Date = unemployedSince
+          ? addDays(unemployedSince, -1)
+          : this.today();
+        const parsed: PeriodsParseResult = parsePeriods(
+          input,
+          this.today(),
+          assumedEnd,
+        );
 
         if (parsed.error) {
           reply.messages.push(parsed.error);
+          return undefined;
+        }
+
+        // Бот сам подставил конец: сначала показываем и переспрашиваем.
+        if (parsed.assumedEnd) {
+          session.pendingAnswer = {
+            saveAs: node.saveAs,
+            next: node.next,
+            value: parsed.periods,
+          };
+          reply.messages.push(
+            [TEXT_PERIODS_ASSUMED, ...this.formatPeriods(parsed.periods)].join('\n'),
+          );
+          reply.messages.push(
+            (unemployedSince
+              ? TEXT_ASSUMED_UNTIL_UNEMPLOYED
+              : TEXT_ASSUMED_UNTIL_TODAY
+            ).replace('{date}', formatGermanDate(assumedEnd)),
+          );
+          reply.options = [ANSWER_CONFIRM_YES, ANSWER_CONFIRM_NO];
           return undefined;
         }
 
@@ -195,13 +305,7 @@ export class ConversationService {
 
         if (parsed.periods.length > 0) {
           reply.messages.push(
-            [
-              TEXT_PERIODS_SAVED,
-              ...parsed.periods.map(
-                (p: EmploymentPeriod): string =>
-                  `${formatGermanDate(p.start)} - ${formatGermanDate(p.end)}`,
-              ),
-            ].join('\n'),
+            [TEXT_PERIODS_SAVED, ...this.formatPeriods(parsed.periods)].join('\n'),
           );
         }
 
@@ -265,6 +369,20 @@ export class ConversationService {
     if (node.type === 'choice') {
       reply.options = node.options.map((o: ChoiceOption): string => o.label);
     }
+
+    if (node.type === 'ask') {
+      reply.options = [
+        ...node.topics.map((t: AskTopic): string => t.label),
+        node.exitLabel,
+      ];
+    }
+  }
+
+  private formatPeriods(periods: EmploymentPeriod[]): string[] {
+    return periods.map(
+      (p: EmploymentPeriod): string =>
+        `${formatGermanDate(p.start)} - ${formatGermanDate(p.end)}`,
+    );
   }
 
   private buildFinding(node: FindingNode, session: Session): string {
