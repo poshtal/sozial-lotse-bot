@@ -22,32 +22,32 @@ function period(start: string, end: string): EmploymentPeriod {
 }
 
 describe('checkAnwartschaft', () => {
-  // История автора проекта. Даты примерные: заменить на настоящие.
-  const firstJob: EmploymentPeriod = period('15.08.2024', '30.09.2024');
-  const secondJob: EmploymentPeriod = period('01.11.2024', '01.07.2025');
-  const seasonalJob: EmploymentPeriod = period('20.10.2025', '05.01.2026');
+  // Настоящая история автора проекта: три места работы и их даты.
+  const firstJob: EmploymentPeriod = period('01.07.2024', '15.08.2024');
+  const secondJob: EmploymentPeriod = period('11.11.2024', '01.08.2025');
+  const seasonalJob: EmploymentPeriod = period('28.10.2025', '17.01.2026');
 
-  it('история автора: после двух работ стажа не хватает', () => {
+  it('история автора: после двух работ не хватает около двух месяцев', () => {
     const result = checkAnwartschaft(
       [firstJob, secondJob],
-      date('02.07.2025'),
+      date('02.08.2025'),
       PARAMS,
     );
 
-    expect(result.countedDays).toBe(47 + 243);
+    expect(result.countedDays).toBe(46 + 264);
     expect(result.fulfilled).toBe(false);
-    expect(result.missingDays).toBe(70);
-    expect(result.missingMonths).toBe(3);
+    expect(result.missingDays).toBe(50);
+    expect(result.missingMonths).toBe(2);
   });
 
   it('история автора: короткий сезонный контракт закрывает недостающий срок', () => {
     const result = checkAnwartschaft(
       [firstJob, secondJob, seasonalJob],
-      date('06.01.2026'),
+      date('18.01.2026'),
       PARAMS,
     );
 
-    expect(result.countedDays).toBe(47 + 243 + 78);
+    expect(result.countedDays).toBe(46 + 264 + 82);
     expect(result.fulfilled).toBe(true);
     expect(result.missingDays).toBe(0);
   });

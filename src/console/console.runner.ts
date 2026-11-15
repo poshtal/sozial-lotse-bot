@@ -20,17 +20,21 @@ export class ConsoleRunner {
     });
 
     console.log('Консольный режим. Команды: /start, /forget, выход: Ctrl+C\n');
-    this.print(this.conversation.handleMessage(CONSOLE_CHAT_ID, '/start'));
+    this.print(await this.conversation.handleMessage(CONSOLE_CHAT_ID, '/start'));
 
     // Несколько строк подряд без паузы (вставленный список мест работы)
     // склеиваются в одно сообщение, как это будет в Telegram.
     let buffer: string[] = [];
     let timer: NodeJS.Timeout | undefined;
+    // Сообщения обрабатываются строго по очереди, даже если ответ долгий.
+    let queue: Promise<void> = Promise.resolve();
 
     const flush = (): void => {
       const text: string = buffer.join('\n');
       buffer = [];
-      this.print(this.conversation.handleMessage(CONSOLE_CHAT_ID, text));
+      queue = queue.then(async (): Promise<void> => {
+        this.print(await this.conversation.handleMessage(CONSOLE_CHAT_ID, text));
+      });
     };
 
     for await (const line of rl) {
@@ -43,6 +47,7 @@ export class ConsoleRunner {
     if (buffer.length > 0) {
       flush();
     }
+    await queue;
   }
 
   private print(reply: BotReply): void {

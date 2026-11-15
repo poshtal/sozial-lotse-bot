@@ -53,6 +53,32 @@ export interface MessageNode {
   next: string;
 }
 
+/** Тема, о которой бот предлагает рассказать сам. */
+export interface AskTopic {
+  id: string;
+  /** Подпись кнопки. */
+  label: string;
+  /** Вопрос, который уходит в базу знаний и модели. */
+  question: string;
+  /** Номера кусков, которые точно отвечают на вопрос: "sgb-3-p147". */
+  chunks?: string[];
+}
+
+/**
+ * Свободные вопросы: человек выбирает тему кнопкой или пишет свой вопрос,
+ * бот отвечает по базе знаний и остаётся на этом же узле.
+ */
+export interface AskNode {
+  type: 'ask';
+  text: string;
+  /** Что бот пишет после каждого ответа. */
+  againText: string;
+  topics: AskTopic[];
+  /** Подпись кнопки выхода. */
+  exitLabel: string;
+  next: string;
+}
+
 /** Конец разговора. */
 export interface EndNode {
   type: 'end';
@@ -65,6 +91,7 @@ export type QuestionNode =
   | PeriodsNode
   | FindingNode
   | MessageNode
+  | AskNode
   | EndNode;
 
 export interface QuestionTree {

@@ -53,6 +53,10 @@ export class QuestionnaireService {
         throw new Error(`Questionnaire node "${id}" has no options`);
       }
 
+      if (node.type === 'ask' && node.topics.length === 0) {
+        throw new Error(`Questionnaire node "${id}" has no topics`);
+      }
+
       for (const nextId of nextIds) {
         if (!this.tree.nodes[nextId]) {
           throw new Error(
