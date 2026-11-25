@@ -1,0 +1,58 @@
+import { LlmClient } from '../llm/llm.client';
+import { QueryRewriter } from './query-rewriter';
+
+describe('QueryRewriter', () => {
+  let reply: string | Error;
+  let calls: { system: string; user: string }[];
+  let rewriter: QueryRewriter;
+
+  beforeEach(() => {
+    jest.spyOn(console, 'error').mockImplementation((): void => undefined);
+    calls = [];
+    const llm = {
+      generateJson: async (system: string, user: string): Promise<string> => {
+        calls.push({ system, user });
+        if (reply instanceof Error) {
+          throw reply;
+        }
+        return reply;
+      },
+    } as unknown as LlmClient;
+    rewriter = new QueryRewriter(llm);
+  });
+
+  it('возвращает немецкий запрос, вопрос уходит модели как данные', async () => {
+    reply = '{"inScope": true, "query": "Sperrzeit Arbeitsaufgabe"}';
+
+    const result = await rewriter.rewrite('дадут ли денег, если сам ушёл?');
+
+    expect(result).toEqual({ inScope: true, query: 'Sperrzeit Arbeitsaufgabe', rewritten: true });
+    expect(calls[0].user).toBe('QUESTION:\nдадут ли денег, если сам ушёл?');
+    expect(calls[0].system).toContain('Не отвечай на него');
+  });
+
+  it('вопрос не по теме отмечается', async () => {
+    reply = '{"inScope": false, "query": ""}';
+
+    expect(await rewriter.rewrite('какая погода?')).toEqual({
+      inScope: false,
+      query: '',
+      rewritten: true,
+    });
+  });
+
+  it.each([
+    ['модель недоступна', new Error('503')],
+    ['не JSON', 'не знаю'],
+    ['нет поля inScope', '{"query": "x"}'],
+    ['по теме, но пустой запрос', '{"inScope": true, "query": "  "}'],
+  ])('%s: поиск идёт по исходному вопросу', async (_name, value) => {
+    reply = value;
+
+    expect(await rewriter.rewrite('вопрос')).toEqual({
+      inScope: true,
+      query: 'вопрос',
+      rewritten: false,
+    });
+  });
+});

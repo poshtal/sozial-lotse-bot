@@ -4,6 +4,7 @@ import { KnowledgeService } from '../knowledge/knowledge.service';
 import { SearchResult, StoredChunk } from '../knowledge/types/knowledge-chunk';
 import { LlmClient } from '../llm/llm.client';
 import {
+  DEFAULT_MIN_RELEVANCE_SCORE,
   MAX_QUESTION_LENGTH,
   SYSTEM_INSTRUCTION,
   TEXT_DECISION_NOTE,
@@ -11,14 +12,16 @@ import {
   TEXT_SOURCES_LABEL,
   TEXT_UNKNOWN,
 } from './constants/answer.constants';
+import { QueryRewriter, RewrittenQuery } from './query-rewriter';
 import { Answer, AnswerSource } from './types/answer';
 
 /**
  * Отвечает на вопрос человека по тексту закона (RAG):
- * 1. находит подходящие куски в базе знаний;
- * 2. если подходящих нет, сразу отвечает «не умею», модель не вызывается;
- * 3. иначе отдаёт куски и вопрос модели и просит пересказать по-русски;
- * 4. к ответу прикладывает источники, проверенные кодом.
+ * 1. модель переписывает вопрос языком закона и отсеивает вопросы не по теме;
+ * 2. по этому запросу находит подходящие куски в базе знаний;
+ * 3. если подходящих нет, сразу отвечает «не умею»;
+ * 4. иначе отдаёт куски и исходный вопрос модели и просит пересказать по-русски;
+ * 5. к ответу прикладывает источники, проверенные кодом.
  *
  * Текст вопроса и ответа нигде не логируется.
  */
@@ -30,9 +33,11 @@ export class AnswerService {
     private readonly configService: ConfigService,
     private readonly knowledge: KnowledgeService,
     private readonly llm: LlmClient,
+    private readonly rewriter: QueryRewriter,
   ) {
     this.minScore = Number(
-      this.configService.get<string>('MIN_RELEVANCE_SCORE') ?? 0.57,
+      this.configService.get<string>('MIN_RELEVANCE_SCORE') ??
+        DEFAULT_MIN_RELEVANCE_SCORE,
     );
   }
 
@@ -118,7 +123,14 @@ export class AnswerService {
       }
     }
 
-    const results: SearchResult[] = await this.knowledge.search(question);
+    // Вопрос человека: сначала переписываем его языком закона.
+    const rewritten: RewrittenQuery = await this.rewriter.rewrite(question);
+
+    if (!rewritten.inScope) {
+      return [];
+    }
+
+    const results: SearchResult[] = await this.knowledge.search(rewritten.query);
 
     return results
       .filter((result: SearchResult): boolean => result.score >= this.minScore)
