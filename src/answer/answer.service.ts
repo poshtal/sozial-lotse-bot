@@ -13,7 +13,7 @@ import {
   TEXT_UNKNOWN,
 } from './constants/answer.constants';
 import { QueryRewriter, RewrittenQuery } from './query-rewriter';
-import { Answer, AnswerSource } from './types/answer';
+import { Answer, AnswerSource, AnswerTrace } from './types/answer';
 
 /**
  * Отвечает на вопрос человека по тексту закона (RAG):
@@ -50,9 +50,10 @@ export class AnswerService {
     const cleanQuestion: string = question.trim().slice(0, MAX_QUESTION_LENGTH);
 
     let chunks: StoredChunk[];
+    const trace: AnswerTrace = new AnswerTrace();
 
     try {
-      chunks = await this.findChunks(cleanQuestion, pinnedChunkIds);
+      chunks = await this.findChunks(cleanQuestion, pinnedChunkIds, trace);
     } catch (error) {
       this.logFailure('поиск в базе знаний', error);
       return this.plain('failed', TEXT_FAILED);
@@ -60,7 +61,7 @@ export class AnswerService {
 
     // Подходящего текста в базе нет: отвечает код, а не модель.
     if (chunks.length === 0) {
-      return this.plain('unknown', TEXT_UNKNOWN);
+      return this.plain('unknown', TEXT_UNKNOWN, trace);
     }
 
     let raw: string;
@@ -72,18 +73,18 @@ export class AnswerService {
       );
     } catch (error) {
       this.logFailure('запрос к модели', error);
-      return this.plain('failed', TEXT_FAILED);
+      return this.plain('failed', TEXT_FAILED, trace);
     }
 
     const parsed: ModelReply | null = parseModelReply(raw);
 
     if (!parsed) {
       this.logFailure('разбор ответа модели', new Error('answer is not valid JSON'));
-      return this.plain('failed', TEXT_FAILED);
+      return this.plain('failed', TEXT_FAILED, trace);
     }
 
     if (!parsed.answered || parsed.answer.trim() === '') {
-      return this.plain('unknown', TEXT_UNKNOWN);
+      return this.plain('unknown', TEXT_UNKNOWN, trace);
     }
 
     // Источники берём только из тех кусков, что реально были в контексте.
@@ -103,6 +104,7 @@ export class AnswerService {
     const answer: Answer = new Answer();
     answer.status = 'answered';
     answer.sources = sources;
+    answer.trace = trace;
     answer.text = [
       parsed.answer.trim(),
       `${TEXT_SOURCES_LABEL} ${formatSources(sources)}`,
@@ -111,26 +113,38 @@ export class AnswerService {
     return answer;
   }
 
+  /** Находит куски для ответа и по пути записывает в trace, как их искали. */
   private async findChunks(
     question: string,
     pinnedChunkIds: string[],
+    trace: AnswerTrace,
   ): Promise<StoredChunk[]> {
     if (pinnedChunkIds.length > 0) {
       const pinned: StoredChunk[] = await this.knowledge.getChunks(pinnedChunkIds);
 
       if (pinned.length > 0) {
+        trace.pinned = true;
         return pinned;
       }
     }
 
     // Вопрос человека: сначала переписываем его языком закона.
     const rewritten: RewrittenQuery = await this.rewriter.rewrite(question);
+    trace.inScope = rewritten.inScope;
+    trace.rewritten = rewritten.rewritten;
+    trace.query = rewritten.query;
 
     if (!rewritten.inScope) {
       return [];
     }
 
     const results: SearchResult[] = await this.knowledge.search(rewritten.query);
+    trace.results = results.map((result: SearchResult) => ({
+      chunk_id: result.chunk.chunk_id,
+      title: result.chunk.title,
+      score: result.score,
+      passed: result.score >= this.minScore,
+    }));
 
     return results
       .filter((result: SearchResult): boolean => result.score >= this.minScore)
@@ -159,10 +173,11 @@ export class AnswerService {
     console.error(`Answer failed (${step}): ${reason}`);
   }
 
-  private plain(status: Answer['status'], text: string): Answer {
+  private plain(status: Answer['status'], text: string, trace?: AnswerTrace): Answer {
     const answer: Answer = new Answer();
     answer.status = status;
     answer.text = text;
+    answer.trace = trace;
     return answer;
   }
 }

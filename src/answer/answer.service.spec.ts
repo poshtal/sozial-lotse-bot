@@ -216,4 +216,41 @@ describe('AnswerService', () => {
 
     expect(llmCalls[0].user.split('QUESTION:\n')[1]).toHaveLength(500);
   });
+
+  describe('trace', () => {
+    it('записывает запрос и все найденные куски с отметкой порога', async () => {
+      searchResults = [found(0.65, P147), found(0.4, P143)];
+
+      const answer = await service.answer('сколько платят?');
+
+      expect(answer.trace).toMatchObject({
+        pinned: false,
+        inScope: true,
+        rewritten: true,
+        query: 'Arbeitslosengeld Anspruchsdauer',
+      });
+      expect(answer.trace?.results).toEqual([
+        { chunk_id: 'sgb-3-p147', title: 'SGB 3 § 147 Grundsatz', score: 0.65, passed: true },
+        { chunk_id: 'sgb-3-p143', title: 'SGB 3 § 143 Rahmenfrist', score: 0.4, passed: false },
+      ]);
+    });
+
+    it('при отказе тоже есть: видно, что вопрос отсеян', async () => {
+      rewriteResult = { inScope: false, query: '', rewritten: true };
+
+      const answer = await service.answer('какая погода в Берлине?');
+
+      expect(answer.status).toBe('unknown');
+      expect(answer.trace?.inScope).toBe(false);
+      expect(answer.trace?.results).toEqual([]);
+    });
+
+    it('для темы с заданными кусками отмечает, что поиска не было', async () => {
+      pinned = [P147];
+
+      const answer = await service.answer('вопрос темы', ['sgb-3-p147']);
+
+      expect(answer.trace?.pinned).toBe(true);
+    });
+  });
 });
