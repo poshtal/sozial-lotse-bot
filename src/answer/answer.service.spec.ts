@@ -3,6 +3,7 @@ import { KnowledgeService } from '../knowledge/knowledge.service';
 import { SearchResult, StoredChunk } from '../knowledge/types/knowledge-chunk';
 import { LlmClient } from '../llm/llm.client';
 import { AnswerService } from './answer.service';
+import { QueryRewriter, RewrittenQuery } from './query-rewriter';
 
 function chunk(id: string, title: string, text: string): StoredChunk {
   return {
@@ -28,6 +29,9 @@ describe('AnswerService', () => {
   let pinned: StoredChunk[];
   let modelReply: string | Error;
   let llmCalls: { system: string; user: string }[];
+  let rewriteResult: RewrittenQuery;
+  let rewriteCalls: string[];
+  let searchedFor: string[];
   let service: AnswerService;
 
   beforeEach(() => {
@@ -37,9 +41,15 @@ describe('AnswerService', () => {
     pinned = [];
     modelReply = '{"answered": true, "answer": "По закону платят от 6 месяцев.", "sources": ["sgb-3-p147"]}';
     llmCalls = [];
+    rewriteCalls = [];
+    searchedFor = [];
+    rewriteResult = { inScope: true, query: 'Arbeitslosengeld Anspruchsdauer', rewritten: true };
 
     const knowledge = {
-      search: async (): Promise<SearchResult[]> => searchResults,
+      search: async (query: string): Promise<SearchResult[]> => {
+        searchedFor.push(query);
+        return searchResults;
+      },
       getChunks: async (): Promise<StoredChunk[]> => pinned,
     } as unknown as KnowledgeService;
     const llm = {
@@ -53,7 +63,14 @@ describe('AnswerService', () => {
     } as unknown as LlmClient;
     const config = { get: (): undefined => undefined } as unknown as ConfigService;
 
-    service = new AnswerService(config, knowledge, llm);
+    const rewriter = {
+      rewrite: async (question: string): Promise<RewrittenQuery> => {
+        rewriteCalls.push(question);
+        return rewriteResult;
+      },
+    } as unknown as QueryRewriter;
+
+    service = new AnswerService(config, knowledge, llm, rewriter);
   });
 
   const found = (score: number, c: StoredChunk): SearchResult => ({ score, chunk: c });
@@ -82,6 +99,36 @@ describe('AnswerService', () => {
     expect(llmCalls[0].user).toContain('CONTEXT:\n[chunk_id: sgb-3-p147]');
     expect(llmCalls[0].user).toMatch(/QUESTION:\nсколько платят пособие\?$/);
     expect(llmCalls[0].system).toContain('ТОЛЬКО на основе фрагментов');
+  });
+
+  it('поиск идёт по запросу, переписанному языком закона, а модели уходит исходный вопрос', async () => {
+    searchResults = [found(0.65, P147)];
+
+    await service.answer('дадут ли денег, если сам ушёл?');
+
+    expect(rewriteCalls).toEqual(['дадут ли денег, если сам ушёл?']);
+    expect(searchedFor).toEqual(['Arbeitslosengeld Anspruchsdauer']);
+    expect(llmCalls[0].user).toMatch(/QUESTION:\nдадут ли денег, если сам ушёл\?$/);
+  });
+
+  it('вопрос не по теме: «не умею» без поиска и без ответа модели', async () => {
+    rewriteResult = { inScope: false, query: '', rewritten: true };
+    searchResults = [found(0.9, P147)];
+
+    const answer = await service.answer('какая погода в Берлине?');
+
+    expect(answer.status).toBe('unknown');
+    expect(searchedFor).toEqual([]);
+    expect(llmCalls).toHaveLength(0);
+  });
+
+  it('для кнопок с закреплёнными параграфами вопрос не переписывается', async () => {
+    pinned = [P147];
+
+    await service.answer('Сколько месяцев платят?', ['sgb-3-p147']);
+
+    expect(rewriteCalls).toEqual([]);
+    expect(searchedFor).toEqual([]);
   });
 
   it('нет подходящих кусков: «не умею», и модель не вызывается', async () => {

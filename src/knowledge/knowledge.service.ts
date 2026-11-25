@@ -43,7 +43,7 @@ export class KnowledgeService {
     private readonly qdrant: QdrantClient,
     private readonly clock: ClockService,
   ) {
-    this.topK = Number(this.configService.get<string>('TOP_K_VALUE') ?? 3);
+    this.topK = Number(this.configService.get<string>('TOP_K_VALUE') ?? 5);
   }
 
   /**
