@@ -1,6 +1,7 @@
 import { EmploymentPeriod } from '../rules/types/employment-period';
 import { MAX_PERIODS, TEXT_NO_JOBS_WORDS } from './constants/conversation.constants';
 import { parseHumanDate } from './human-date.parser';
+import { fixTypos } from './typos';
 
 export class PeriodsParseResult {
   periods: EmploymentPeriod[] = [];
@@ -91,7 +92,7 @@ export function parsePeriods(
 }
 
 function parseOnePeriod(line: string, today: Date): EmploymentPeriod | null {
-  const text: string = line
+  const text: string = fixTypos(line)
     .trim()
     .toLowerCase()
     .replace(/^(с|со|от) /, '')

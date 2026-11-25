@@ -95,4 +95,11 @@ describe('parsePeriods', () => {
     expect(result.error).toContain('потом ещё полгода');
     expect(result.periods).toEqual([]);
   });
+
+  it('понимает дату с опечаткой в одну букву', () => {
+    const today: Date = new Date(Date.UTC(2026, 10, 25));
+
+    expect(parseHumanDate('1 июля 24 гора', today)).toEqual(new Date(Date.UTC(2024, 6, 1)));
+    expect(parseHumanDate('7 нрября', today)).toEqual(new Date(Date.UTC(2026, 10, 7)));
+  });
 });
