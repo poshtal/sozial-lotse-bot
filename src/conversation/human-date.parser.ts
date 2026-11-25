@@ -1,4 +1,5 @@
 import { addDays } from '../rules/date.utils';
+import { fixTypos } from './typos';
 
 /**
  * Разбирает дату, написанную по-человечески:
@@ -8,6 +9,7 @@ import { addDays } from '../rules/date.utils';
  *   с 7 ноября (предлог в начале отбрасывается)
  *
  * Месяцы понимает на русском, украинском и немецком.
+ * Опечатку в одну букву исправляет: «7 нрября», «1 июля 24 гора».
  * Если год не указан, берётся ближайшая такая дата в прошлом:
  * бот спрашивает только о том, что уже случилось.
  *
@@ -15,7 +17,7 @@ import { addDays } from '../rules/date.utils';
  * Возвращает null, если дату разобрать не удалось.
  */
 export function parseHumanDate(text: string, today: Date): Date | null {
-  const input: string = text
+  const input: string = fixTypos(text)
     .trim()
     .toLowerCase()
     .replace(/ё/g, 'е')
