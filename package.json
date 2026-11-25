@@ -11,7 +11,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "ingest": "ts-node src/ingest.ts",
-    "search": "ts-node src/search.ts"
+    "search": "ts-node src/search.ts",
+    "evaluate": "ts-node src/evaluate.ts"
   },
   "jest": {
     "preset": "ts-jest",
