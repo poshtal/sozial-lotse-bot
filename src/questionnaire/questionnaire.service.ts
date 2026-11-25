@@ -47,7 +47,11 @@ export class QuestionnaireService {
           ? node.options.map((o) => o.next)
           : node.type === 'end'
             ? []
-            : [node.next];
+            : node.type === 'finding' &&
+                node.rule === 'anwartschaftszeit' &&
+                node.fulfilledNext
+              ? [node.next, node.fulfilledNext]
+              : [node.next];
 
       if (node.type === 'choice' && node.options.length === 0) {
         throw new Error(`Questionnaire node "${id}" has no options`);

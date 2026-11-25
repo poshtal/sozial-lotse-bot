@@ -303,4 +303,81 @@ describe('ConversationService', () => {
 
     expect(allText(reply)).toContain('слишком длинное');
   });
+
+  describe('срок пособия (§ 147)', () => {
+    /** Уволили 02.07.2025, до этого 30 месяцев работы подряд. */
+    const toAgeQuestion = async (): Promise<BotReply> => {
+      await say('/start');
+      await say('Окей');
+      await say('Недавно уволили, ничего не получаю');
+      await say('02.07.2025');
+      return say('01.01.2023 - 01.07.2025');
+    };
+
+    it('после «условие выполнено» бот спрашивает возраст кнопками', async () => {
+      const reply: BotReply = await toAgeQuestion();
+
+      expect(allText(reply)).toContain('условие выполнено');
+      expect(allText(reply)).toContain('Сколько тебе полных лет?');
+      expect(reply.options).toEqual(['До 50', '50–54', '55–57', '58 и старше']);
+    });
+
+    it('до 50 лет и 30 месяцев работы: 12 месяцев, это максимум', async () => {
+      await toAgeQuestion();
+      const previous: BotReply = await say('До 50');
+      expect(previous.options).toEqual(['Нет', 'Да', 'Не помню']);
+
+      const reply: BotReply = await say('Нет');
+
+      expect(allText(reply)).toContain('положено на 12 мес.');
+      expect(allText(reply)).toContain('самый долгий срок');
+      expect(allText(reply)).toContain('§ 148');
+      // Дальше, как раньше: темы и свободные вопросы.
+      expect(allText(reply)).toContain('о чём часто не знают');
+      expect(reply.options).toHaveLength(5);
+    });
+
+    it('55–57 лет и 30 месяцев: 15 месяцев и оговорка про работу раньше', async () => {
+      await toAgeQuestion();
+      await say('55–57');
+      const reply: BotReply = await say('Нет');
+
+      expect(allText(reply)).toContain('набирается 30 мес.');
+      expect(allText(reply)).toContain('это 15 мес. пособия');
+      expect(allText(reply)).toContain('до 18 мес., если наберётся 36 мес.');
+    });
+
+    it('если уже получал пособие, бот не считает, а объясняет', async () => {
+      await toAgeQuestion();
+      await say('До 50');
+      const reply: BotReply = await say('Не помню');
+
+      expect(allText(reply)).toContain('не посчитаю');
+      expect(allText(reply)).not.toContain('положено на');
+      expect(reply.options).toHaveLength(5);
+    });
+
+    it('если стажа не хватает, про срок не спрашивает', async () => {
+      await say('/start');
+      await say('Окей');
+      await say('Недавно уволили, ничего не получаю');
+      await say('02.07.2025');
+      const reply: BotReply = await say('01.11.2024 - 01.07.2025');
+
+      expect(allText(reply)).toContain('Не хватает');
+      expect(allText(reply)).not.toContain('полных лет');
+      expect(allText(reply)).toContain('о чём часто не знают');
+    });
+
+    it('каждая кнопка возраста есть в data/rules.json', () => {
+      const config = { get: (): undefined => undefined } as unknown as ConfigService;
+      const node = new QuestionnaireService(config).getNode('age');
+      const rules = new RulesService(config);
+
+      expect(node.type).toBe('choice');
+      for (const option of node.type === 'choice' ? node.options : []) {
+        expect(rules.hasAgeGroup(option.id)).toBe(true);
+      }
+    });
+  });
 });

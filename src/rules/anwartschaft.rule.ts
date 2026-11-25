@@ -44,7 +44,11 @@ export function checkAnwartschaft(
   return result;
 }
 
-function countDaysInsideFrame(
+/**
+ * Считает дни работы внутри окна [frameStart, frameEnd].
+ * Пересекающиеся периоды склеиваются: две работы в один день дают один день.
+ */
+export function countDaysInsideFrame(
   periods: EmploymentPeriod[],
   frameStart: Date,
   frameEnd: Date,

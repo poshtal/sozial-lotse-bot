@@ -34,7 +34,7 @@ export interface PeriodsNode {
 }
 
 /** Находка: бот применяет правило и сообщает результат. */
-export interface FindingNode {
+export interface AnwartschaftFindingNode {
   type: 'finding';
   rule: 'anwartschaftszeit';
   /** Из какого ответа брать периоды работы. */
@@ -44,7 +44,26 @@ export interface FindingNode {
   fulfilled: string;
   missing: string;
   next: string;
+  /** Куда идти, если стаж набран. Нет: туда же, куда next. */
+  fulfilledNext?: string;
 }
+
+/** Срок пособия по § 147. */
+export interface AnspruchsdauerFindingNode {
+  type: 'finding';
+  rule: 'anspruchsdauer';
+  periodsFrom: string;
+  referenceFrom: string;
+  /** Из какого ответа брать возрастную группу (id кнопки). */
+  ageFrom: string;
+  /** Срок равен максимуму для возраста: число точное. */
+  exact: string;
+  /** До максимума не хватает работы: возможно, человек работал раньше. */
+  belowMax: string;
+  next: string;
+}
+
+export type FindingNode = AnwartschaftFindingNode | AnspruchsdauerFindingNode;
 
 /** Сообщение без вопроса. */
 export interface MessageNode {

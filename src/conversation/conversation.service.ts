@@ -4,6 +4,8 @@ import { Answer } from '../answer/types/answer';
 import { ClockService } from '../clock/clock.service';
 import { QuestionnaireService } from '../questionnaire/questionnaire.service';
 import {
+  AnspruchsdauerFindingNode,
+  AnwartschaftFindingNode,
   AskNode,
   AskTopic,
   ChoiceNode,
@@ -13,6 +15,7 @@ import {
 } from '../questionnaire/types/question-node';
 import { addDays, formatGermanDate, toUtcDay } from '../rules/date.utils';
 import { RulesService } from '../rules/rules.service';
+import { AnspruchsdauerResult } from '../rules/types/anspruchsdauer-result';
 import { AnwartschaftResult } from '../rules/types/anwartschaft-result';
 import { EmploymentPeriod } from '../rules/types/employment-period';
 import { PendingAnswer, Session } from '../session/session';
@@ -333,10 +336,12 @@ export class ConversationService {
           session.nodeId = node.next;
           break;
 
-        case 'finding':
-          reply.messages.push(this.buildFinding(node, session));
-          session.nodeId = node.next;
+        case 'finding': {
+          const finding: Finding = this.buildFinding(node, session);
+          reply.messages.push(finding.text);
+          session.nodeId = finding.next;
           break;
+        }
 
         case 'end':
           reply.messages.push(node.text);
@@ -385,7 +390,7 @@ export class ConversationService {
     );
   }
 
-  private buildFinding(node: FindingNode, session: Session): string {
+  private buildFinding(node: FindingNode, session: Session): Finding {
     const periods: EmploymentPeriod[] =
       (session.answers[node.periodsFrom] as EmploymentPeriod[] | undefined) ?? [];
 
@@ -394,6 +399,16 @@ export class ConversationService {
       (session.answers[node.referenceFrom] as Date | undefined) ??
       addDays(this.today(), 1);
 
+    return node.rule === 'anspruchsdauer'
+      ? this.buildDurationFinding(node, session, periods, referenceDate)
+      : this.buildAnwartschaftFinding(node, periods, referenceDate);
+  }
+
+  private buildAnwartschaftFinding(
+    node: AnwartschaftFindingNode,
+    periods: EmploymentPeriod[],
+    referenceDate: Date,
+  ): Finding {
     const result: AnwartschaftResult = this.rules.checkAnwartschaft(
       periods,
       referenceDate,
@@ -401,11 +416,40 @@ export class ConversationService {
 
     const template: string = result.fulfilled ? node.fulfilled : node.missing;
 
-    return template
-      .replace('{countedDays}', String(result.countedDays))
-      .replace('{countedMonths}', String(result.countedMonths))
-      .replace('{missingDays}', String(result.missingDays))
-      .replace('{missingMonths}', String(result.missingMonths));
+    return {
+      text: template
+        .replace('{countedDays}', String(result.countedDays))
+        .replace('{countedMonths}', String(result.countedMonths))
+        .replace('{missingDays}', String(result.missingDays))
+        .replace('{missingMonths}', String(result.missingMonths)),
+      next: result.fulfilled && node.fulfilledNext ? node.fulfilledNext : node.next,
+    };
+  }
+
+  private buildDurationFinding(
+    node: AnspruchsdauerFindingNode,
+    session: Session,
+    periods: EmploymentPeriod[],
+    referenceDate: Date,
+  ): Finding {
+    const result: AnspruchsdauerResult = this.rules.calculateAnspruchsdauer(
+      periods,
+      referenceDate,
+      String(session.answers[node.ageFrom]),
+    );
+
+    // Срок уже максимальный для возраста: более ранняя работа ничего не добавит.
+    const template: string =
+      result.benefitMonths === result.maxForAge ? node.exact : node.belowMax;
+
+    return {
+      text: template
+        .replace('{months}', String(result.benefitMonths))
+        .replace('{countedMonths}', String(result.countedMonths))
+        .replace('{maxMonths}', String(result.maxForAge))
+        .replace('{monthsForMax}', String(result.monthsForMax)),
+      next: node.next,
+    };
   }
 
   /** Ответ на вопрос с кнопками: номер варианта или его текст. */
@@ -440,4 +484,10 @@ export class ConversationService {
   private today(): Date {
     return toUtcDay(this.clock.now());
   }
+}
+
+/** Текст находки и куда разговор идёт дальше. */
+interface Finding {
+  text: string;
+  next: string;
 }
