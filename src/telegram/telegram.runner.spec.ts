@@ -150,8 +150,9 @@ describe('TelegramRunner', () => {
     expect(sent[0].text).toContain('Записал:');
     expect(sent[1].text).toContain('Не хватает 70 дн.');
     expect(sent[1].buttons).toEqual([]);
-    // Дальше бот предлагает темы: четыре кнопки, «Закончить» и «Забудь всё».
-    expect(sent[2].buttons).toHaveLength(6);
+    // Дальше бот предлагает то, что может быть доступно уволенному без
+    // права на пособие: пять пунктов, «Закончить» и «Забудь всё».
+    expect(sent[2].buttons).toHaveLength(7);
     expect(sent[2].buttons.slice(-2)).toEqual(['Закончить', 'Забудь всё']);
 
     await text('Закончить');
@@ -228,11 +229,11 @@ describe('TelegramRunner', () => {
     sent = [];
 
     // Человек не дождался ответа и успел написать ещё два сообщения.
-    await text('Когда и как встать на учёт');
+    await text('Встать на учёт заранее');
     await text('какая погода в берлине?');
 
     // Сообщения человека имеют номера 5 и 6.
-    expect(sent[0].text).toContain('ОТВЕТ НА: Когда нужно сообщить');
+    expect(sent[0].text).toContain('ОТВЕТ НА: Когда нужно встать на учёт');
     expect(sent[0].replyTo).toBe(5);
     expect(sent[2].text).toContain('ОТВЕТ НА: какая погода в берлине?');
     expect(sent[2].replyTo).toBe(6);

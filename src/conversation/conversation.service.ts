@@ -4,6 +4,11 @@ import { Answer } from '../answer/types/answer';
 import { ClockService } from '../clock/clock.service';
 import { QuestionnaireService } from '../questionnaire/questionnaire.service';
 import {
+  formatTopicList,
+  TopicContext,
+  visibleTopics,
+} from '../questionnaire/topic-filter';
+import {
   AnspruchsdauerFindingNode,
   AnwartschaftFindingNode,
   AskNode,
@@ -113,7 +118,7 @@ export class ConversationService {
 
       this.sessions.touch(session);
       reply.messages.push(TEXT_FORGET_CANCELLED);
-      this.showQuestion(this.questionnaire.getNode(session.nodeId), reply);
+      this.showQuestion(this.questionnaire.getNode(session.nodeId), reply, session);
       return reply;
     }
 
@@ -121,7 +126,7 @@ export class ConversationService {
 
     if (input.length > MAX_MESSAGE_LENGTH) {
       reply.messages.push(TEXT_TOO_LONG);
-      this.showOptions(this.questionnaire.getNode(session.nodeId), reply);
+      this.showOptions(this.questionnaire.getNode(session.nodeId), reply, session);
       return reply;
     }
 
@@ -169,7 +174,7 @@ export class ConversationService {
     if (!nextId) {
       // Ответ не подошёл: в reply уже лежит объяснение. Сам вопрос не
       // повторяем, он остался выше в чате. Возвращаем только кнопки.
-      this.showOptions(node, reply);
+      this.showOptions(node, reply, session);
       return reply;
     }
 
@@ -193,7 +198,8 @@ export class ConversationService {
 
     // Кнопка темы: вопрос и нужные параграфы заданы заранее в дереве.
     // Любой другой текст: вопрос человека, параграфы ищет база знаний.
-    const topic: AskTopic | undefined = node.topics.find(
+    const topics: AskTopic[] = visibleTopics(node.topics, this.topicContext(session));
+    const topic: AskTopic | undefined = topics.find(
       (t: AskTopic, index: number): boolean =>
         t.label.toLowerCase() === input.toLowerCase() ||
         input === String(index + 1),
@@ -206,7 +212,7 @@ export class ConversationService {
     reply.messages.push(answer.text);
     reply.messages.push(node.againText);
     reply.answersQuestion = true;
-    this.showOptions(node, reply);
+    this.showOptions(node, reply, session);
   }
 
   private startOver(chatId: string, reply: BotReply): void {
@@ -350,7 +356,7 @@ export class ConversationService {
           return;
 
         default:
-          this.showQuestion(node, reply);
+          this.showQuestion(node, reply, session);
           return;
       }
     }
@@ -358,29 +364,54 @@ export class ConversationService {
     throw new Error('Questionnaire has a loop without questions');
   }
 
-  private showQuestion(node: QuestionNode, reply: BotReply): void {
+  private showQuestion(node: QuestionNode, reply: BotReply, session: Session): void {
     if (node.type === 'end') {
       return;
     }
 
-    if (node.type !== 'finding') {
+    if (node.type === 'ask') {
+      reply.messages.push(this.askText(node, session));
+    } else if (node.type !== 'finding') {
       reply.messages.push(node.text);
     }
 
-    this.showOptions(node, reply);
+    this.showOptions(node, reply, session);
   }
 
-  private showOptions(node: QuestionNode, reply: BotReply): void {
+  private showOptions(node: QuestionNode, reply: BotReply, session: Session): void {
     if (node.type === 'choice') {
       reply.options = node.options.map((o: ChoiceOption): string => o.label);
     }
 
     if (node.type === 'ask') {
       reply.options = [
-        ...node.topics.map((t: AskTopic): string => t.label),
+        ...visibleTopics(node.topics, this.topicContext(session)).map(
+          (t: AskTopic): string => t.label,
+        ),
         node.exitLabel,
       ];
     }
+  }
+
+  /** Список того, что человеку может быть доступно, или общий текст, если ничего не подошло. */
+  private askText(node: AskNode, session: Session): string {
+    const topics: AskTopic[] = visibleTopics(node.topics, this.topicContext(session));
+
+    if (topics.length === 0 || !node.listText) {
+      return node.text;
+    }
+
+    return node.listText.replace('{list}', formatTopicList(topics));
+  }
+
+  private topicContext(session: Session): TopicContext {
+    const status: string | undefined = session.answers['status'] as string | undefined;
+
+    return {
+      status,
+      // Уже получает пособие или анкета показала, что стаж набран.
+      algEligible: status === 'alg1' || session.answers['algEligible'] === true,
+    };
   }
 
   private formatPeriods(periods: EmploymentPeriod[]): string[] {
@@ -401,11 +432,12 @@ export class ConversationService {
 
     return node.rule === 'anspruchsdauer'
       ? this.buildDurationFinding(node, session, periods, referenceDate)
-      : this.buildAnwartschaftFinding(node, periods, referenceDate);
+      : this.buildAnwartschaftFinding(node, session, periods, referenceDate);
   }
 
   private buildAnwartschaftFinding(
     node: AnwartschaftFindingNode,
+    session: Session,
     periods: EmploymentPeriod[],
     referenceDate: Date,
   ): Finding {
@@ -413,6 +445,9 @@ export class ConversationService {
       periods,
       referenceDate,
     );
+
+    // По этому решается, какие подсказки показывать дальше.
+    session.answers['algEligible'] = result.fulfilled;
 
     const template: string = result.fulfilled ? node.fulfilled : node.missing;
 
