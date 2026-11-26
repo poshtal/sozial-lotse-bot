@@ -91,14 +91,18 @@ describe('ConversationService', () => {
     await say('Работаю');
     const more: BotReply = await say('нет');
 
-    expect(allText(more)).toContain('о чём часто не знают');
+    expect(allText(more)).toContain('Об этом часто не знают');
+    // Работающему: только то, что относится к работающим.
     expect(more.options).toEqual([
-      'Сколько месяцев платят пособие',
-      'Когда и как встать на учёт',
-      'Учёба за счёт агентства',
-      'Если уволился сам',
+      'Встать на учёт заранее',
+      'Деньги на поиск работы',
+      'Коучинг и помощь с резюме',
+      'Курсы, пока работаешь',
+      'Если не заплатили зарплату',
       'Закончить',
     ]);
+    // В тексте нумерованный список с описанием каждого пункта.
+    expect(allText(more)).toContain('1. Встать на учёт заранее. Если работа может закончиться');
     expect(more.finished).toBe(false);
   });
 
@@ -108,17 +112,18 @@ describe('ConversationService', () => {
     await say('Работаю');
     await say('нет');
 
-    const reply: BotReply = await say('Сколько месяцев платят пособие');
+    const reply: BotReply = await say('Встать на учёт заранее');
 
     expect(asked).toEqual([
       {
-        question: 'Сколько месяцев платят Arbeitslosengeld и от чего зависит этот срок?',
-        chunks: ['sgb-3-p147'],
+        question:
+          'Когда нужно встать на учёт как arbeitsuchend, если работа скоро закончится, и что будет, если опоздать?',
+        chunks: ['sgb-3-p38', 'sgb-3-p159'],
       },
     ]);
     expect(reply.messages[0]).toContain('ОТВЕТ НА:');
     expect(reply.messages[1]).toContain('Что ещё рассказать?');
-    expect(reply.options).toHaveLength(5);
+    expect(reply.options).toHaveLength(6);
   });
 
   it('свой вопрос уходит в базу знаний как есть, без закреплённых параграфов', async () => {
@@ -332,9 +337,9 @@ describe('ConversationService', () => {
       expect(allText(reply)).toContain('положено на 12 мес.');
       expect(allText(reply)).toContain('самый долгий срок');
       expect(allText(reply)).toContain('§ 148');
-      // Дальше, как раньше: темы и свободные вопросы.
-      expect(allText(reply)).toContain('о чём часто не знают');
-      expect(reply.options).toHaveLength(5);
+      // Дальше: всё, что может быть доступно уволенному с правом на пособие.
+      expect(allText(reply)).toContain('Об этом часто не знают');
+      expect(reply.options).toHaveLength(10);
     });
 
     it('55–57 лет и 30 месяцев: 15 месяцев и оговорка про работу раньше', async () => {
@@ -354,7 +359,7 @@ describe('ConversationService', () => {
 
       expect(allText(reply)).toContain('не посчитаю');
       expect(allText(reply)).not.toContain('положено на');
-      expect(reply.options).toHaveLength(5);
+      expect(reply.options).toHaveLength(10);
     });
 
     it('если стажа не хватает, про срок не спрашивает', async () => {
@@ -366,7 +371,9 @@ describe('ConversationService', () => {
 
       expect(allText(reply)).toContain('Не хватает');
       expect(allText(reply)).not.toContain('полных лет');
-      expect(allText(reply)).toContain('о чём часто не знают');
+      // Без права на пособие: без пунктов про пособие (подработка, своё дело...).
+      expect(reply.options).not.toContain('Подработка при пособии');
+      expect(reply.options).toContain('Курсы и переобучение');
     });
 
     it('каждая кнопка возраста есть в data/rules.json', () => {
@@ -378,6 +385,47 @@ describe('ConversationService', () => {
       for (const option of node.type === 'choice' ? node.options : []) {
         expect(rules.hasAgeGroup(option.id)).toBe(true);
       }
+    });
+  });
+
+  describe('подсказки по положению человека', () => {
+    it('получает пособие: пункты про пособие есть, про учёт и банкротство нет', async () => {
+      await say('/start');
+      await say('Окей');
+      const reply: BotReply = await say('Получаю Arbeitslosengeld (пособие по безработице)');
+
+      expect(reply.options).toEqual([
+        'Деньги на поиск работы',
+        'Коучинг и помощь с резюме',
+        'Курсы и переобучение',
+        'Курсы, пока идёт пособие',
+        'Деньги на своё дело',
+        'Подработка при пособии',
+        'Пособие с детьми',
+        'Закончить',
+      ]);
+    });
+
+    it('Jobcenter: подсказок по SGB III нет, остаются свободные вопросы', async () => {
+      await say('/start');
+      await say('Окей');
+      const reply: BotReply = await say('В Jobcenter');
+
+      expect(allText(reply)).toContain('Напиши свой вопрос');
+      expect(allText(reply)).not.toContain('может быть доступно');
+      expect(reply.options).toEqual(['Закончить']);
+    });
+
+    it('номер пункта считается по списку, который видит человек', async () => {
+      await say('/start');
+      await say('Окей');
+      await say('Работаю');
+      await say('нет');
+
+      // У работающего пятый пункт: Insolvenzgeld.
+      await say('5');
+
+      expect(asked[0].chunks).toEqual(['sgb-3-p165', 'sgb-3-p324']);
     });
   });
 });
