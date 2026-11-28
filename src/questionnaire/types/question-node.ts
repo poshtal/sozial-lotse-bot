@@ -109,6 +109,8 @@ export interface AskNode {
   listText?: string;
   /** Что бот пишет после каждого ответа. */
   againText: string;
+  /** То же, когда под ответом есть кнопки «ещё спрашивают». */
+  followUpsText?: string;
   topics: AskTopic[];
   /** Подпись кнопки выхода. */
   exitLabel: string;

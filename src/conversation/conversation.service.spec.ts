@@ -15,6 +15,7 @@ describe('ConversationService', () => {
   let sessions: SessionService;
   /** Что ядро спросило у базы знаний: вопрос и закреплённые куски. */
   let asked: { question: string; chunks: string[] }[];
+  let followUps: string[];
   let conversation: ConversationService;
 
   beforeEach(() => {
@@ -25,12 +26,14 @@ describe('ConversationService', () => {
     sessions = new SessionService(config, clock);
     // Вместо настоящего RAG стоит заглушка: ядру важно только, что спросили.
     asked = [];
+    followUps = [];
     const answers = {
       answer: async (question: string, chunks: string[] = []): Promise<Answer> => {
         asked.push({ question, chunks });
         const answer: Answer = new Answer();
         answer.status = 'answered';
         answer.text = `ОТВЕТ НА: ${question}`;
+        answer.followUps = followUps;
         return answer;
       },
     } as unknown as AnswerService;
@@ -426,6 +429,46 @@ describe('ConversationService', () => {
       await say('5');
 
       expect(asked[0].chunks).toEqual(['sgb-3-p165', 'sgb-3-p324']);
+    });
+  });
+
+  describe('«ещё спрашивают»', () => {
+    const toQuestions = async (): Promise<void> => {
+      await say('/start');
+      await say('Окей');
+      await say('Работаю');
+      await say('нет');
+    };
+
+    it('вопросы-продолжения идут первыми кнопками, с пояснением', async () => {
+      await toQuestions();
+      followUps = ['А что считается уважительной причиной?', 'Сколько длится Sperrzeit?'];
+
+      const reply: BotReply = await say('что будет, если уволюсь сам?');
+
+      expect(reply.options.slice(0, 2)).toEqual(followUps);
+      expect(reply.options).toContain('Встать на учёт заранее');
+      expect(reply.options[reply.options.length - 1]).toBe('Закончить');
+      expect(allText(reply)).toContain('что ещё спрашивают');
+    });
+
+    it('нажатая кнопка-продолжение уходит в базу как обычный вопрос', async () => {
+      await toQuestions();
+      followUps = ['Сколько длится Sperrzeit?'];
+      await say('что будет, если уволюсь сам?');
+
+      await say('Сколько длится Sperrzeit?');
+
+      expect(asked[1]).toEqual({ question: 'Сколько длится Sperrzeit?', chunks: [] });
+    });
+
+    it('без продолжений всё как раньше', async () => {
+      await toQuestions();
+
+      const reply: BotReply = await say('что будет, если уволюсь сам?');
+
+      expect(allText(reply)).toContain('Что ещё рассказать?');
+      expect(reply.options[0]).toBe('Встать на учёт заранее');
     });
   });
 });

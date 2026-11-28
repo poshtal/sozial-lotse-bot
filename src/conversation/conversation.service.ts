@@ -210,9 +210,21 @@ export class ConversationService {
       : await this.answers.answer(input);
 
     reply.messages.push(answer.text);
-    reply.messages.push(node.againText);
     reply.answersQuestion = true;
     this.showOptions(node, reply, session);
+
+    // «Ещё спрашивают»: первыми кнопками. Нажатая кнопка придёт сюда же
+    // обычным текстом и уйдёт в базу знаний как свободный вопрос.
+    const followUps: string[] = answer.followUps.filter(
+      (f: string): boolean => !reply.options.some((o: string) => o.toLowerCase() === f.toLowerCase()),
+    );
+
+    if (followUps.length > 0 && node.followUpsText) {
+      reply.messages.push(node.followUpsText);
+      reply.options = [...followUps, ...reply.options];
+    } else {
+      reply.messages.push(node.againText);
+    }
   }
 
   private startOver(chatId: string, reply: BotReply): void {

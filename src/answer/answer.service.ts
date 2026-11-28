@@ -5,10 +5,14 @@ import { SearchResult, StoredChunk } from '../knowledge/types/knowledge-chunk';
 import { LlmClient } from '../llm/llm.client';
 import {
   DEFAULT_MIN_RELEVANCE_SCORE,
+  MAX_FOLLOW_UP_LENGTH,
+  MAX_FOLLOW_UPS,
   MAX_QUESTION_LENGTH,
   SYSTEM_INSTRUCTION,
   TEXT_DECISION_NOTE,
   TEXT_FAILED,
+  TEXT_LABOR_LAW,
+  TEXT_OUT_OF_SCOPE,
   TEXT_SOURCES_LABEL,
   TEXT_UNKNOWN,
 } from './constants/answer.constants';
@@ -59,6 +63,12 @@ export class AnswerService {
       return this.plain('failed', TEXT_FAILED);
     }
 
+    // Вопрос не по теме: отвечает код, по тому, куда вопрос относится.
+    if (!trace.inScope) {
+      const text: string = trace.area === 'labor_law' ? TEXT_LABOR_LAW : TEXT_OUT_OF_SCOPE;
+      return this.plain('unknown', text, trace);
+    }
+
     // Подходящего текста в базе нет: отвечает код, а не модель.
     if (chunks.length === 0) {
       return this.plain('unknown', TEXT_UNKNOWN, trace);
@@ -84,7 +94,11 @@ export class AnswerService {
     }
 
     if (!parsed.answered || parsed.answer.trim() === '') {
-      return this.plain('unknown', TEXT_UNKNOWN, trace);
+      return this.plain(
+        'unknown',
+        parsed.refusal === 'labor_law' ? TEXT_LABOR_LAW : TEXT_UNKNOWN,
+        trace,
+      );
     }
 
     // Источники берём только из тех кусков, что реально были в контексте.
@@ -105,6 +119,7 @@ export class AnswerService {
     answer.status = 'answered';
     answer.sources = sources;
     answer.trace = trace;
+    answer.followUps = cleanFollowUps(parsed.followUps, cleanQuestion);
     answer.text = [
       parsed.answer.trim(),
       `${TEXT_SOURCES_LABEL} ${formatSources(sources)}`,
@@ -131,6 +146,7 @@ export class AnswerService {
     // Вопрос человека: сначала переписываем его языком закона.
     const rewritten: RewrittenQuery = await this.rewriter.rewrite(question);
     trace.inScope = rewritten.inScope;
+    trace.area = rewritten.area;
     trace.rewritten = rewritten.rewritten;
     trace.query = rewritten.query;
 
@@ -186,6 +202,9 @@ interface ModelReply {
   answered: boolean;
   answer: string;
   sources: string[];
+  /** Почему не ответила: трудовое право получает свой текст отказа. */
+  refusal: 'labor_law' | null;
+  followUps: string[];
 }
 
 /** Разбирает JSON от модели. Любое отклонение от формата считается сбоем. */
@@ -205,6 +224,10 @@ function parseModelReply(raw: string): ModelReply | null {
       sources: Array.isArray(data.sources)
         ? data.sources.filter((s: unknown): s is string => typeof s === 'string')
         : [],
+      refusal: data.refusal === 'labor_law' ? 'labor_law' : null,
+      followUps: Array.isArray(data.followUps)
+        ? data.followUps.filter((f: unknown): f is string => typeof f === 'string')
+        : [],
     };
   } catch {
     return null;
@@ -214,4 +237,31 @@ function parseModelReply(raw: string): ModelReply | null {
 /** "SGB 3 § 147 Grundsatz; SGB 3 § 148 ..." без повторов для частей одного §. */
 function formatSources(sources: AnswerSource[]): string {
   return [...new Set(sources.map((source: AnswerSource): string => source.title))].join('; ');
+}
+
+/**
+ * Вопросы «ещё спрашивают» станут кнопками, поэтому строго: без пустых,
+ * без повторов и повтора самого вопроса, не длиннее подписи кнопки.
+ */
+function cleanFollowUps(followUps: string[], question: string): string[] {
+  const seen: Set<string> = new Set([question.toLowerCase()]);
+  const result: string[] = [];
+
+  for (const raw of followUps) {
+    const text: string = raw.trim();
+    const key: string = text.toLowerCase();
+
+    if (text === '' || text.length > MAX_FOLLOW_UP_LENGTH || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push(text);
+
+    if (result.length === MAX_FOLLOW_UPS) {
+      break;
+    }
+  }
+
+  return result;
 }
