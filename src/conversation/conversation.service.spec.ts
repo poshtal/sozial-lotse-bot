@@ -34,6 +34,9 @@ describe('ConversationService', () => {
         answer.status = 'answered';
         answer.text = `ОТВЕТ НА: ${question}`;
         answer.followUps = followUps;
+        answer.sources = [
+          { source_id: 'sgb-3', chunk_id: 'sgb-3-p159-1', title: '§ 159', location: '§ 159' },
+        ];
         return answer;
       },
     } as unknown as AnswerService;
@@ -452,14 +455,24 @@ describe('ConversationService', () => {
       expect(allText(reply)).toContain('что ещё спрашивают');
     });
 
-    it('нажатая кнопка-продолжение уходит в базу как обычный вопрос', async () => {
+    it('нажатая кнопка-продолжение отвечается по тем же кускам закона', async () => {
       await toQuestions();
       followUps = ['Сколько длится Sperrzeit?'];
       await say('что будет, если уволюсь сам?');
 
       await say('Сколько длится Sperrzeit?');
 
-      expect(asked[1]).toEqual({ question: 'Сколько длится Sperrzeit?', chunks: [] });
+      expect(asked[1]).toEqual({ question: 'Сколько длится Sperrzeit?', chunks: ['sgb-3-p159-1'] });
+    });
+
+    it('обычный вопрос после продолжений ищется заново, по всей базе', async () => {
+      await toQuestions();
+      followUps = ['Сколько длится Sperrzeit?'];
+      await say('что будет, если уволюсь сам?');
+
+      await say('а подрабатывать можно?');
+
+      expect(asked[1]).toEqual({ question: 'а подрабатывать можно?', chunks: [] });
     });
 
     it('без продолжений всё как раньше', async () => {
