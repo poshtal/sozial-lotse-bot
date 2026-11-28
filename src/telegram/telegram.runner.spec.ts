@@ -137,7 +137,7 @@ describe('TelegramRunner', () => {
   it('полный путь: статус кнопкой, даты текстом, находка, кнопка «Начать заново»', async () => {
     await text('/start');
     await text('Окей');
-    expect(last().buttons).toHaveLength(5);
+    expect(last().buttons).toHaveLength(6);
 
     await text('Недавно уволили, ничего не получаю');
     expect(last().buttons).toEqual(['Забудь всё']);

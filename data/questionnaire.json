@@ -23,6 +23,16 @@
           "next": "employed_intro"
         },
         {
+          "id": "notice",
+          "label": "Увольнение вручили, но ещё работаю",
+          "next": "notice_date"
+        },
+        {
+          "id": "fired",
+          "label": "Недавно уволили, ничего не получаю",
+          "next": "unemployed_since"
+        },
+        {
           "id": "alg1",
           "label": "Получаю Arbeitslosengeld (пособие по безработице)",
           "next": "branch_alg1"
@@ -31,11 +41,6 @@
           "id": "jobcenter",
           "label": "В Jobcenter",
           "next": "branch_jobcenter"
-        },
-        {
-          "id": "fired",
-          "label": "Недавно уволили, ничего не получаю",
-          "next": "unemployed_since"
         }
       ]
     },
@@ -43,6 +48,14 @@
       "type": "date",
       "saveAs": "unemployedSince",
       "text": "Сочувствую, это неприятно. Давай разберёмся, что тебе доступно.\n\nС какого дня ты без работы? Если увольнение уже вручили, а работа ещё идёт, напиши первый день после последнего рабочего. Например: 01.07.2025 или 16 декабря.",
+      "maxFutureDays": 214,
+      "futureNote": "Работа ещё идёт, значит, есть одно срочное дело. Встать на учёт в Agentur für Arbeit как arbeitsuchend нужно не позже чем через 3 дня после того, как ты узнал о дате увольнения, а если до конца работы больше 3 месяцев, то за 3 месяца до него. Это нужно, даже если ты собираешься оспаривать увольнение (§ 38 SGB III). Если опоздать, пособие могут задержать на неделю (§ 159).",
+      "next": "jobs"
+    },
+    "notice_date": {
+      "type": "date",
+      "saveAs": "unemployedSince",
+      "text": "Понял, работа скоро закончится. С какого дня ты будешь без работы? Напиши первый день после последнего рабочего, например 16 декабря.",
       "maxFutureDays": 214,
       "futureNote": "Работа ещё идёт, значит, есть одно срочное дело. Встать на учёт в Agentur für Arbeit как arbeitsuchend нужно не позже чем через 3 дня после того, как ты узнал о дате увольнения, а если до конца работы больше 3 месяцев, то за 3 месяца до него. Это нужно, даже если ты собираешься оспаривать увольнение (§ 38 SGB III). Если опоздать, пособие могут задержать на неделю (§ 159).",
       "next": "jobs"
@@ -173,7 +186,8 @@
           ],
           "showIf": {
             "status": [
-              "fired"
+              "fired",
+              "notice"
             ]
           }
         },
@@ -190,6 +204,7 @@
             "status": [
               "employed",
               "fired",
+              "notice",
               "alg1"
             ]
           }
@@ -206,6 +221,7 @@
             "status": [
               "employed",
               "fired",
+              "notice",
               "alg1"
             ]
           }
@@ -221,6 +237,7 @@
           "showIf": {
             "status": [
               "fired",
+              "notice",
               "alg1"
             ]
           }
@@ -237,6 +254,7 @@
           "showIf": {
             "status": [
               "fired",
+              "notice",
               "alg1"
             ],
             "algEligible": true
@@ -267,6 +285,7 @@
           "showIf": {
             "status": [
               "fired",
+              "notice",
               "alg1"
             ],
             "algEligible": true
@@ -284,6 +303,7 @@
           "showIf": {
             "status": [
               "fired",
+              "notice",
               "alg1"
             ],
             "algEligible": true
@@ -300,6 +320,7 @@
           "showIf": {
             "status": [
               "fired",
+              "notice",
               "alg1"
             ],
             "algEligible": true
@@ -317,7 +338,8 @@
           "showIf": {
             "status": [
               "employed",
-              "fired"
+              "fired",
+              "notice"
             ]
           }
         }
