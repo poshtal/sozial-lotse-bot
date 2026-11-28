@@ -49,15 +49,24 @@ export class AnswerService {
    * @param question вопрос человека или заранее заготовленный вопрос темы
    * @param pinnedChunkIds куски, которые точно относятся к теме. Если они
    *   заданы и есть в базе, поиск по смыслу не нужен.
+   * @param previousQuestion предыдущий вопрос человека: чтобы понять
+   *   «а какие документы для этого нужны?», где «это» осталось в прошлом вопросе
    */
-  async answer(question: string, pinnedChunkIds: string[] = []): Promise<Answer> {
+  async answer(
+    question: string,
+    pinnedChunkIds: string[] = [],
+    previousQuestion?: string,
+  ): Promise<Answer> {
     const cleanQuestion: string = question.trim().slice(0, MAX_QUESTION_LENGTH);
+    const previous: string | undefined = previousQuestion
+      ?.trim()
+      .slice(0, MAX_QUESTION_LENGTH);
 
     let chunks: StoredChunk[];
     const trace: AnswerTrace = new AnswerTrace();
 
     try {
-      chunks = await this.findChunks(cleanQuestion, pinnedChunkIds, trace);
+      chunks = await this.findChunks(cleanQuestion, pinnedChunkIds, trace, previous);
     } catch (error) {
       this.logFailure('поиск в базе знаний', error);
       return this.plain('failed', TEXT_FAILED);
@@ -79,7 +88,7 @@ export class AnswerService {
     try {
       raw = await this.llm.generateJson(
         SYSTEM_INSTRUCTION,
-        this.buildUserContent(cleanQuestion, chunks),
+        this.buildUserContent(cleanQuestion, chunks, previous),
       );
     } catch (error) {
       this.logFailure('запрос к модели', error);
@@ -133,6 +142,7 @@ export class AnswerService {
     question: string,
     pinnedChunkIds: string[],
     trace: AnswerTrace,
+    previousQuestion?: string,
   ): Promise<StoredChunk[]> {
     if (pinnedChunkIds.length > 0) {
       const pinned: StoredChunk[] = await this.knowledge.getChunks(pinnedChunkIds);
@@ -144,7 +154,7 @@ export class AnswerService {
     }
 
     // Вопрос человека: сначала переписываем его языком закона.
-    const rewritten: RewrittenQuery = await this.rewriter.rewrite(question);
+    const rewritten: RewrittenQuery = await this.rewriter.rewrite(question, previousQuestion);
     trace.inScope = rewritten.inScope;
     trace.area = rewritten.area;
     trace.rewritten = rewritten.rewritten;
@@ -168,7 +178,11 @@ export class AnswerService {
   }
 
   /** Контекст и вопрос разделены метками, чтобы модель не путала данные и правила. */
-  private buildUserContent(question: string, chunks: StoredChunk[]): string {
+  private buildUserContent(
+    question: string,
+    chunks: StoredChunk[],
+    previousQuestion?: string,
+  ): string {
     const context: string = chunks
       .map(
         (chunk: StoredChunk): string =>
@@ -176,7 +190,10 @@ export class AnswerService {
       )
       .join('\n\n---\n\n');
 
-    return `CONTEXT:\n${context}\n\nQUESTION:\n${question}`;
+    const previous: string = previousQuestion
+      ? `PREVIOUS QUESTION:\n${previousQuestion}\n\n`
+      : '';
+    return `CONTEXT:\n${context}\n\n${previous}QUESTION:\n${question}`;
   }
 
   /**
