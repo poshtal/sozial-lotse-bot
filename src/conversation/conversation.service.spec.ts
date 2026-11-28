@@ -67,7 +67,7 @@ describe('ConversationService', () => {
   it('недавно уволили, стажа не хватает', async () => {
     await say('/start');
     const status: BotReply = await say('Окей');
-    expect(status.options).toHaveLength(4);
+    expect(status.options).toHaveLength(5);
 
     await say('Недавно уволили, ничего не получаю');
     await say('02.07.2025');
@@ -165,7 +165,8 @@ describe('ConversationService', () => {
   it('непонятные даты: бот объясняет и повторяет вопрос', async () => {
     await say('/start');
     await say('Окей');
-    await say('4');
+    // Номер кнопки работает как нажатие: третья это «Недавно уволили».
+    await say('3');
 
     const badDate: BotReply = await say('в июле');
     expect(allText(badDate)).toContain('Не смог разобрать дату');
@@ -527,6 +528,38 @@ describe('ConversationService', () => {
       const reply: BotReply = await say('01.08.2024 - сейчас');
 
       expect(allText(reply)).toContain('01.08.2024 - 31.07.2025');
+    });
+  });
+
+  describe('увольнение вручили, ещё работаю: отдельная кнопка', () => {
+    it('спрашивает дату окончания, принимает будущую и ведёт по тому же пути', async () => {
+      await say('/start');
+      const status: BotReply = await say('Окей');
+      expect(status.options).toContain('Увольнение вручили, но ещё работаю');
+
+      const question: BotReply = await say('Увольнение вручили, но ещё работаю');
+      expect(allText(question)).toContain('С какого дня ты будешь без работы?');
+
+      const saved: BotReply = await say('16 августа');
+      expect(allText(saved)).toContain('Записал дату: 16.08.2025');
+      expect(allText(saved)).toContain('arbeitsuchend');
+      expect(allText(saved)).toContain('Перечисли места работы');
+
+      // 30 месяцев работы до 15.08.2025: право есть, дальше вопросы о сроке.
+      const finding: BotReply = await say('01.01.2023 - сейчас');
+      expect(allText(finding)).toContain('01.01.2023 - 15.08.2025');
+    });
+
+    it('подсказки как у уволенного: «Заявить о безработице», Insolvenzgeld', async () => {
+      await say('/start');
+      await say('Окей');
+      await say('Увольнение вручили, но ещё работаю');
+      await say('16 августа');
+      const reply: BotReply = await say('нет');
+
+      expect(reply.options).toContain('Заявить о безработице');
+      expect(reply.options).toContain('Если не заплатили зарплату');
+      expect(reply.options).not.toContain('Курсы, пока работаешь');
     });
   });
 });
