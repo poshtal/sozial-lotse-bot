@@ -16,6 +16,7 @@ export class LlmClient {
   private readonly model: string;
   private readonly retryWaitMs: number;
   private readonly maxAttempts: number = 3;
+  private readonly timeoutMs: number;
 
   constructor(private readonly configService: ConfigService) {
     this.apiUrl =
@@ -27,6 +28,10 @@ export class LlmClient {
     ).replace(/^models\//, '');
     this.retryWaitMs = Number(
       this.configService.get<string>('LLM_RETRY_WAIT_MS') ?? 4000,
+    );
+    // Дольше человек в Telegram ждать не должен: лучше честно сказать «не получилось».
+    this.timeoutMs = Number(
+      this.configService.get<string>('LLM_TIMEOUT_MS') ?? 30000,
     );
   }
 
@@ -58,17 +63,28 @@ export class LlmClient {
     });
 
     for (let attempt: number = 1; ; attempt++) {
-      const response: Response = await fetch(
-        `${this.apiUrl}/models/${this.model}:generateContent`,
-        {
+      let response: Response;
+
+      try {
+        response = await fetch(`${this.apiUrl}/models/${this.model}:generateContent`, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
             'x-goog-api-key': this.apiKey,
           },
           body,
-        },
-      );
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+      } catch (error) {
+        // Google завис: не повторяем, чтобы человек не ждал втрое дольше.
+        // Имя, а не instanceof: ошибка приходит как DOMException.
+        if ((error as { name?: string } | null)?.name === 'TimeoutError') {
+          throw new Error(
+            `Gemini generation request timed out after ${this.timeoutMs} ms`,
+          );
+        }
+        throw error;
+      }
 
       if (response.ok) {
         return this.readText(await response.json());
@@ -78,7 +94,9 @@ export class LlmClient {
         response.status === 429 || response.status === 503;
 
       if (!isTemporary || attempt >= this.maxAttempts) {
-        throw new Error(`Gemini generation request failed: ${response.status}`);
+        throw new Error(
+          `Gemini generation request failed: ${response.status}${await describeLimit(response)}`,
+        );
       }
 
       await new Promise((resolve): void => {
@@ -106,5 +124,35 @@ export class LlmClient {
     }
 
     return text;
+  }
+}
+
+/**
+ * Для ошибки 429 достаёт из ответа Google, какой именно лимит кончился
+ * (в минуту или в день) и через сколько можно повторить. Там только
+ * названия лимитов, ни вопроса, ни ключа нет, поэтому это можно писать в лог.
+ */
+async function describeLimit(response: Response): Promise<string> {
+  if (response.status !== 429) {
+    return '';
+  }
+
+  try {
+    const data = (await response.json()) as {
+      error?: { details?: { violations?: { quotaId?: string }[]; retryDelay?: string }[] };
+    };
+    const details = data.error?.details ?? [];
+    const quotas: string[] = details
+      .flatMap((d) => d.violations ?? [])
+      .map((v) => v.quotaId ?? '')
+      .filter((id: string): boolean => id !== '');
+    const retry: string | undefined = details.find((d) => d.retryDelay)?.retryDelay;
+
+    const parts: string[] = [];
+    if (quotas.length > 0) parts.push(`limit: ${[...new Set(quotas)].join(', ')}`);
+    if (retry) parts.push(`retry in ${retry}`);
+    return parts.length > 0 ? ` (${parts.join('; ')})` : '';
+  } catch {
+    return '';
   }
 }

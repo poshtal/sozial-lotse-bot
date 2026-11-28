@@ -31,14 +31,24 @@ describe('QueryRewriter', () => {
     expect(calls[0].system).toContain('Не отвечай на него');
   });
 
-  it('вопрос не по теме отмечается', async () => {
+  it('вопрос не по теме отмечается; без area считается «прочее»', async () => {
     reply = '{"inScope": false, "query": ""}';
 
     expect(await rewriter.rewrite('какая погода?')).toEqual({
       inScope: false,
+      area: 'other',
       query: '',
       rewritten: true,
     });
+  });
+
+  it('трудовое право отмечается отдельно, для своего текста отказа', async () => {
+    reply = '{"inScope": false, "query": "", "area": "labor_law"}';
+
+    const result = await rewriter.rewrite('уволили незаконно?');
+
+    expect(result.area).toBe('labor_law');
+    expect(calls[0].system).toContain('labor_law');
   });
 
   it.each([

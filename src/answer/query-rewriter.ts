@@ -2,9 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { LlmClient } from '../llm/llm.client';
 import { REWRITE_INSTRUCTION } from './constants/answer.constants';
 
+/** Куда относится вопрос не по теме. */
+export type OutOfScopeArea = 'labor_law' | 'other';
+
 export class RewrittenQuery {
   /** Вопрос относится к теме базы знаний (безработица, SGB III). */
   inScope: boolean;
+  /** Чем вопрос не по теме: трудовое право получает свой отказ. */
+  area?: OutOfScopeArea;
   /** Поисковый запрос на немецком, языком закона. */
   query: string;
   /** false, если модель недоступна и для поиска взят исходный вопрос. */
@@ -65,7 +70,12 @@ function parseRewrite(raw: string): RewrittenQuery | null {
       return null;
     }
 
-    return { inScope: data.inScope, query, rewritten: true };
+    if (!data.inScope) {
+      const area: OutOfScopeArea = data.area === 'labor_law' ? 'labor_law' : 'other';
+      return { inScope: false, area, query: '', rewritten: true };
+    }
+
+    return { inScope: true, query, rewritten: true };
   } catch {
     return null;
   }

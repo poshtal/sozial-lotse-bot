@@ -253,4 +253,93 @@ describe('AnswerService', () => {
       expect(answer.trace?.pinned).toBe(true);
     });
   });
+
+  describe('отказы', () => {
+    it('вопрос не по теме: нейтральный отказ без советов, куда идти', async () => {
+      rewriteResult = { inScope: false, area: 'other', query: '', rewritten: true };
+
+      const answer = await service.answer('как продлить визу?');
+
+      expect(answer.status).toBe('unknown');
+      expect(answer.text).toContain('я знаю только закон о пособии');
+      expect(answer.text).not.toContain('Jobcenter');
+      expect(llmCalls).toHaveLength(0);
+    });
+
+    it('трудовое право, отсеянное при переписывании: свой отказ со сроком 3 недели', async () => {
+      rewriteResult = { inScope: false, area: 'labor_law', query: '', rewritten: true };
+
+      const answer = await service.answer('меня уволили незаконно?');
+
+      expect(answer.text).toContain('трудового права');
+      expect(answer.text).toContain('3 недель');
+      expect(answer.trace?.area).toBe('labor_law');
+      expect(searchedFor).toEqual([]);
+    });
+
+    it('трудовое право, которое распознала модель при ответе: тот же отказ', async () => {
+      searchResults = [found(0.7, P147)];
+      modelReply = '{"answered": false, "answer": "", "sources": [], "refusal": "labor_law"}';
+
+      const answer = await service.answer('могу ли я оспорить увольнение?');
+
+      expect(answer.status).toBe('unknown');
+      expect(answer.text).toContain('Fachanwalt für Arbeitsrecht');
+    });
+
+    it('по теме, но модель не нашла ответа: обычное «не умею» без Jobcenter', async () => {
+      searchResults = [found(0.7, P147)];
+      modelReply = '{"answered": false, "answer": "", "sources": []}';
+
+      const answer = await service.answer('сколько стоит адвокат?');
+
+      expect(answer.text).toContain('Этого я пока не умею');
+      expect(answer.text).not.toContain('Jobcenter');
+    });
+  });
+
+  it('правила для модели требуют частичных ответов и обращения на «ты»', async () => {
+    searchResults = [found(0.7, P147)];
+
+    await service.answer('если за полгода не найду работу?');
+
+    expect(llmCalls[0].system).toContain('ответь на эту часть');
+    expect(llmCalls[0].system).toContain('всегда на «ты»');
+  });
+
+  it('«ещё спрашивают»: без пустых, повторов, самого вопроса и длинных, не больше трёх', async () => {
+    searchResults = [found(0.7, P147)];
+    modelReply = JSON.stringify({
+      answered: true,
+      answer: 'По закону платят от 6 месяцев.',
+      sources: ['sgb-3-p147'],
+      followUps: [
+        'А если мне больше 50?',
+        '  ',
+        'а если мне больше 50?',
+        'сколько платят?',
+        'Очень длинный вопрос, который не поместится на кнопку в Telegram никак',
+        'Что такое Rahmenfrist?',
+        'Влияет ли Sperrzeit?',
+        'Четвёртый вопрос',
+      ],
+    });
+
+    const answer = await service.answer('сколько платят?');
+
+    expect(answer.followUps).toEqual([
+      'А если мне больше 50?',
+      'Что такое Rahmenfrist?',
+      'Влияет ли Sperrzeit?',
+    ]);
+  });
+
+  it('без поля followUps ответ остаётся ответом', async () => {
+    searchResults = [found(0.7, P147)];
+
+    const answer = await service.answer('сколько платят?');
+
+    expect(answer.status).toBe('answered');
+    expect(answer.followUps).toEqual([]);
+  });
 });

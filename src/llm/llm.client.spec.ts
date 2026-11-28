@@ -86,4 +86,50 @@ describe('LlmClient', () => {
 
     await expect(client.generateJson('s', 'u')).rejects.toThrow('empty answer');
   });
+
+  it('при исчерпанном лимите называет, какой лимит кончился и когда повторить', async () => {
+    const limited = {
+      status: 429,
+      body: {
+        error: {
+          code: 429,
+          details: [
+            {
+              '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+              violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }],
+            },
+            { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '37s' },
+          ],
+        },
+      },
+    };
+    responses.push(limited, limited, limited);
+
+    await expect(client.generateJson('П', 'Д')).rejects.toThrow(
+      'Gemini generation request failed: 429 (limit: GenerateRequestsPerDayPerProjectPerModel-FreeTier; retry in 37s)',
+    );
+  });
+
+  it('если Google не отвечает дольше предела, сдаётся сразу, без повторов', async () => {
+    const slow: Server = createServer(() => {
+      // Никогда не отвечает.
+    });
+    await new Promise<void>((resolve) => slow.listen(0, '127.0.0.1', resolve));
+    const settings: Record<string, string> = {
+      GEMINI_API_URL: `http://127.0.0.1:${(slow.address() as AddressInfo).port}`,
+      GEMINI_API_KEY: 'test-key',
+      GEMINI_GENERATION_MODEL: 'gemini-test',
+      LLM_TIMEOUT_MS: '50',
+    };
+    const impatient = new LlmClient({
+      get: (key: string): string | undefined => settings[key],
+    } as unknown as ConfigService);
+
+    try {
+      await expect(impatient.generateJson('П', 'Д')).rejects.toThrow('timed out after 50 ms');
+    } finally {
+      slow.closeAllConnections();
+      await new Promise<void>((resolve) => slow.close(() => resolve()));
+    }
+  });
 });
