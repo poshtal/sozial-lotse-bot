@@ -45,6 +45,7 @@ import {
   TEXT_FORGET_CONFIRM,
   TEXT_FORGOTTEN,
   TEXT_FUTURE_DATE,
+  TEXT_FUTURE_TOO_FAR,
   TEXT_NOTHING_TO_FORGET,
   TEXT_PERIODS_ASSUMED,
   TEXT_PERIODS_SAVED,
@@ -279,15 +280,25 @@ export class ConversationService {
       }
 
       case 'date': {
-        const date: Date | null = parseHumanDate(input, this.today());
+        const maxFutureDays: number = node.maxFutureDays ?? 0;
+        const date: Date | null = parseHumanDate(input, this.today(), maxFutureDays);
 
         if (!date) {
           reply.messages.push(TEXT_BAD_DATE);
           return undefined;
         }
 
-        if (date.getTime() > this.today().getTime()) {
+        const isFuture: boolean = date.getTime() > this.today().getTime();
+
+        if (isFuture && maxFutureDays === 0) {
           reply.messages.push(TEXT_FUTURE_DATE);
+          return undefined;
+        }
+
+        if (date.getTime() > addDays(this.today(), maxFutureDays).getTime()) {
+          reply.messages.push(
+            TEXT_FUTURE_TOO_FAR.replace('{months}', String(Math.round(maxFutureDays / 30))),
+          );
           return undefined;
         }
 
@@ -296,6 +307,12 @@ export class ConversationService {
         reply.messages.push(
           TEXT_DATE_SAVED.replace('{date}', formatGermanDate(date)),
         );
+
+        // Работа ещё идёт: сразу самое срочное, пока не поздно.
+        if (isFuture && node.futureNote) {
+          reply.messages.push(node.futureNote);
+        }
+
         return node.next;
       }
 
@@ -308,11 +325,11 @@ export class ConversationService {
         const assumedEnd: Date = unemployedSince
           ? addDays(unemployedSince, -1)
           : this.today();
-        const parsed: PeriodsParseResult = parsePeriods(
-          input,
-          this.today(),
-          assumedEnd,
-        );
+        // Последний рабочий день ещё впереди: «по сейчас» и даты без года
+        // считаем от него, а не от сегодня.
+        const now: Date =
+          assumedEnd.getTime() > this.today().getTime() ? assumedEnd : this.today();
+        const parsed: PeriodsParseResult = parsePeriods(input, now, assumedEnd);
 
         if (parsed.error) {
           reply.messages.push(parsed.error);

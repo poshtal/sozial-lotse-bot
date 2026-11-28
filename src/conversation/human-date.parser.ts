@@ -16,7 +16,11 @@ import { fixTypos } from './typos';
  * Это обычный код без LLM: результат всегда один и тот же и покрыт тестами.
  * Возвращает null, если дату разобрать не удалось.
  */
-export function parseHumanDate(text: string, today: Date): Date | null {
+export function parseHumanDate(
+  text: string,
+  today: Date,
+  maxFutureDays: number = 0,
+): Date | null {
   const input: string = fixTypos(text)
     .trim()
     .toLowerCase()
@@ -33,8 +37,8 @@ export function parseHumanDate(text: string, today: Date): Date | null {
   return (
     parseRelativeWord(input, today) ??
     parseIsoDate(input) ??
-    parseNumericDate(input, today) ??
-    parseDateWithMonthName(input, today)
+    parseNumericDate(input, today, maxFutureDays) ??
+    parseDateWithMonthName(input, today, maxFutureDays)
   );
 }
 
@@ -63,7 +67,7 @@ function parseIsoDate(input: string): Date | null {
 }
 
 /** 07.11.2026, 7/11/26, 7-11-2026, 7.11 */
-function parseNumericDate(input: string, today: Date): Date | null {
+function parseNumericDate(input: string, today: Date, maxFutureDays: number): Date | null {
   const match: RegExpMatchArray | null = input.match(
     /^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{4}|\d{2}))?\.?$/,
   );
@@ -77,11 +81,15 @@ function parseNumericDate(input: string, today: Date): Date | null {
 
   return match[3]
     ? buildDate(expandYear(Number(match[3])), month, day)
-    : nearestPastDate(month, day, today);
+    : nearestDate(month, day, today, maxFutureDays);
 }
 
 /** 7 ноября, 7-го ноября 2026 года, 7 ноября этого года, 7. November 2026 */
-function parseDateWithMonthName(input: string, today: Date): Date | null {
+function parseDateWithMonthName(
+  input: string,
+  today: Date,
+  maxFutureDays: number,
+): Date | null {
   const match: RegExpMatchArray | null = input.match(
     /^(\d{1,2})(?:-?(?:го|е|ого))?\.? ([a-zа-яіїєґä]+)\.?(?: (.+))?$/,
   );
@@ -101,7 +109,7 @@ function parseDateWithMonthName(input: string, today: Date): Date | null {
   const currentYear: number = today.getUTCFullYear();
 
   if (tail === '') {
-    return nearestPastDate(month, day, today);
+    return nearestDate(month, day, today, maxFutureDays);
   }
 
   if (/^(в )?(этого|этом|текущего|цього|цьому)$/.test(tail)) {
@@ -145,15 +153,30 @@ function findMonth(word: string): number | null {
   return null;
 }
 
-/** Год не указан: берём этот год, а если дата ещё не наступила, прошлый. */
-function nearestPastDate(month: number, day: number, today: Date): Date | null {
-  const thisYear: Date | null = buildDate(today.getUTCFullYear(), month, day);
+/**
+ * Год не указан: берём ближайшую к сегодня дату с таким днём и месяцем.
+ * В будущее заглядываем не дальше maxFutureDays: «15 декабря», сказанное
+ * в конце ноября человеком, которому вручили увольнение, это этот декабрь.
+ * При maxFutureDays = 0 это всегда прошедшая дата.
+ */
+function nearestDate(
+  month: number,
+  day: number,
+  today: Date,
+  maxFutureDays: number,
+): Date | null {
+  const latest: number = today.getTime() + maxFutureDays * 86_400_000;
+  const year: number = today.getUTCFullYear();
+  const candidates: Date[] = [year - 1, year, year + 1]
+    .map((y: number): Date | null => buildDate(y, month, day))
+    .filter((d: Date | null): d is Date => d !== null && d.getTime() <= latest);
 
-  if (thisYear && thisYear.getTime() <= today.getTime()) {
-    return thisYear;
+  if (candidates.length === 0) {
+    return null;
   }
 
-  return buildDate(today.getUTCFullYear() - 1, month, day);
+  const distance = (d: Date): number => Math.abs(d.getTime() - today.getTime());
+  return candidates.reduce((best: Date, d: Date): Date => (distance(d) < distance(best) ? d : best));
 }
 
 /** 26 превращается в 2026. */

@@ -102,4 +102,29 @@ describe('parsePeriods', () => {
     expect(parseHumanDate('1 июля 24 гора', today)).toEqual(new Date(Date.UTC(2024, 6, 1)));
     expect(parseHumanDate('7 нрября', today)).toEqual(new Date(Date.UTC(2026, 10, 7)));
   });
+
+  describe('дата может быть впереди (увольнение вручили, работа ещё идёт)', () => {
+    const today: Date = new Date(Date.UTC(2026, 10, 28)); // 28.11.2026
+
+    it('без разрешения на будущее «15.12» это прошлый декабрь, как раньше', () => {
+      expect(parseHumanDate('15.12', today)).toEqual(new Date(Date.UTC(2025, 11, 15)));
+    });
+
+    it('с разрешением «15.12» и «16 декабря» это ближайший, этот декабрь', () => {
+      expect(parseHumanDate('15.12', today, 214)).toEqual(new Date(Date.UTC(2026, 11, 15)));
+      expect(parseHumanDate('16 декабря', today, 214)).toEqual(new Date(Date.UTC(2026, 11, 16)));
+    });
+
+    it('«10 января» в конце ноября это следующий январь: он ближе', () => {
+      expect(parseHumanDate('10 января', today, 214)).toEqual(new Date(Date.UTC(2027, 0, 10)));
+    });
+
+    it('«1 июня» в конце ноября это прошедший июнь: он ближе, чем следующий', () => {
+      expect(parseHumanDate('1 июня', today, 214)).toEqual(new Date(Date.UTC(2026, 5, 1)));
+    });
+
+    it('«3 ноября» остаётся прошедшим', () => {
+      expect(parseHumanDate('3 ноября', today, 214)).toEqual(new Date(Date.UTC(2026, 10, 3)));
+    });
+  });
 });
