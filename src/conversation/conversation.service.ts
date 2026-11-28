@@ -205,24 +205,41 @@ export class ConversationService {
         input === String(index + 1),
     );
 
+    // Кнопка «ещё спрашивают»: отвечаем по тем же кускам закона, из которых
+    // модель её предложила. Так ответ на неё действительно найдётся.
+    const previous: FollowUpMemory | undefined = session.answers[FOLLOW_UPS_KEY] as
+      | FollowUpMemory
+      | undefined;
+    const isFollowUp: boolean =
+      !topic &&
+      previous !== undefined &&
+      previous.questions.some((q: string): boolean => q.toLowerCase() === input.toLowerCase());
+
     const answer: Answer = topic
       ? await this.answers.answer(topic.question, topic.chunks)
-      : await this.answers.answer(input);
+      : isFollowUp
+        ? await this.answers.answer(input, previous?.chunkIds ?? [])
+        : await this.answers.answer(input);
 
     reply.messages.push(answer.text);
     reply.answersQuestion = true;
     this.showOptions(node, reply, session);
 
     // «Ещё спрашивают»: первыми кнопками. Нажатая кнопка придёт сюда же
-    // обычным текстом и уйдёт в базу знаний как свободный вопрос.
+    // обычным текстом и будет узнана по памяти сессии.
     const followUps: string[] = answer.followUps.filter(
       (f: string): boolean => !reply.options.some((o: string) => o.toLowerCase() === f.toLowerCase()),
     );
 
     if (followUps.length > 0 && node.followUpsText) {
+      session.answers[FOLLOW_UPS_KEY] = {
+        questions: followUps,
+        chunkIds: answer.sources.map((s) => s.chunk_id),
+      } satisfies FollowUpMemory;
       reply.messages.push(node.followUpsText);
       reply.options = [...followUps, ...reply.options];
     } else {
+      delete session.answers[FOLLOW_UPS_KEY];
       reply.messages.push(node.againText);
     }
   }
@@ -537,4 +554,13 @@ export class ConversationService {
 interface Finding {
   text: string;
   next: string;
+}
+
+/** Где в сессии лежат последние кнопки «ещё спрашивают». */
+const FOLLOW_UPS_KEY: string = 'lastFollowUps';
+
+/** Последние кнопки «ещё спрашивают» и куски закона, из которых они взяты. */
+interface FollowUpMemory {
+  questions: string[];
+  chunkIds: string[];
 }
