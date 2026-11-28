@@ -305,6 +305,8 @@ describe('AnswerService', () => {
 
     expect(llmCalls[0].system).toContain('ответь на эту часть');
     expect(llmCalls[0].system).toContain('всегда на «ты»');
+    // «Меня уволили, что делать?» не трудовое право: на это отвечают по закону.
+    expect(llmCalls[0].system).toContain('что делать после увольнения');
   });
 
   it('«ещё спрашивают»: без пустых, повторов, самого вопроса и длинных, не больше трёх', async () => {
