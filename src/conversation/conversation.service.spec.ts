@@ -15,6 +15,7 @@ describe('ConversationService', () => {
   let sessions: SessionService;
   /** Что ядро спросило у базы знаний: вопрос и закреплённые куски. */
   let asked: { question: string; chunks: string[] }[];
+  let previousQuestions: (string | undefined)[];
   let followUps: string[];
   let conversation: ConversationService;
 
@@ -26,10 +27,16 @@ describe('ConversationService', () => {
     sessions = new SessionService(config, clock);
     // Вместо настоящего RAG стоит заглушка: ядру важно только, что спросили.
     asked = [];
+    previousQuestions = [];
     followUps = [];
     const answers = {
-      answer: async (question: string, chunks: string[] = []): Promise<Answer> => {
+      answer: async (
+        question: string,
+        chunks: string[] = [],
+        previousQuestion?: string,
+      ): Promise<Answer> => {
         asked.push({ question, chunks });
+        previousQuestions.push(previousQuestion);
         const answer: Answer = new Answer();
         answer.status = 'answered';
         answer.text = `ОТВЕТ НА: ${question}`;
@@ -463,7 +470,8 @@ describe('ConversationService', () => {
 
       await say('Сколько длится Sperrzeit?');
 
-      expect(asked[1]).toEqual({ question: 'Сколько длится Sperrzeit?', chunks: ['sgb-3-p159-1'] });
+      // Весь параграф, а не только процитированная часть.
+      expect(asked[1]).toEqual({ question: 'Сколько длится Sperrzeit?', chunks: ['sgb-3-p159'] });
     });
 
     it('обычный вопрос после продолжений ищется заново, по всей базе', async () => {
@@ -561,5 +569,17 @@ describe('ConversationService', () => {
       expect(reply.options).toContain('Если не заплатили зарплату');
       expect(reply.options).not.toContain('Курсы, пока работаешь');
     });
+  });
+
+  it('следующий вопрос получает предыдущий как контекст: «а для этого?»', async () => {
+    await say('/start');
+    await say('Окей');
+    await say('Работаю');
+    await say('нет');
+
+    await say('кто может получить Bildungsgutschein?');
+    await say('какие документы для этого нужны?');
+
+    expect(previousQuestions).toEqual([undefined, 'кто может получить Bildungsgutschein?']);
   });
 });

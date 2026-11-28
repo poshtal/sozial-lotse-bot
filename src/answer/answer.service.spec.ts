@@ -273,6 +273,8 @@ describe('AnswerService', () => {
 
       expect(answer.text).toContain('трудового права');
       expect(answer.text).toContain('3 недель');
+      // Юрист стоит денег: человек должен знать об этом заранее.
+      expect(answer.text).toContain('Rechtsschutzversicherung');
       expect(answer.trace?.area).toBe('labor_law');
       expect(searchedFor).toEqual([]);
     });
@@ -343,5 +345,22 @@ describe('AnswerService', () => {
 
     expect(answer.status).toBe('answered');
     expect(answer.followUps).toEqual([]);
+  });
+
+  it('предыдущий вопрос идёт и в переписывание, и модели, но отвечают на текущий', async () => {
+    searchResults = [found(0.7, P147)];
+    const calls: (string | undefined)[] = [];
+    (service as unknown as { rewriter: { rewrite: (q: string, p?: string) => Promise<RewrittenQuery> } }).rewriter = {
+      rewrite: async (_q: string, p?: string): Promise<RewrittenQuery> => {
+        calls.push(p);
+        return rewriteResult;
+      },
+    };
+
+    await service.answer('а какие документы для этого нужны?', [], 'кто может получить Bildungsgutschein?');
+
+    expect(calls).toEqual(['кто может получить Bildungsgutschein?']);
+    expect(llmCalls[0].user).toContain('PREVIOUS QUESTION:\nкто может получить Bildungsgutschein?');
+    expect(llmCalls[0].user).toMatch(/QUESTION:\nа какие документы для этого нужны\?$/);
   });
 });

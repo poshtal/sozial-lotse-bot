@@ -216,11 +216,18 @@ export class ConversationService {
       previous !== undefined &&
       previous.questions.some((q: string): boolean => q.toLowerCase() === input.toLowerCase());
 
+    // Предыдущий вопрос: «а какие документы для этого нужны?» без него не понять.
+    const lastQuestion: string | undefined = session.answers[LAST_QUESTION_KEY] as
+      | string
+      | undefined;
+
     const answer: Answer = topic
       ? await this.answers.answer(topic.question, topic.chunks)
       : isFollowUp
-        ? await this.answers.answer(input, previous?.chunkIds ?? [])
-        : await this.answers.answer(input);
+        ? await this.answers.answer(input, previous?.chunkIds ?? [], lastQuestion)
+        : await this.answers.answer(input, [], lastQuestion);
+
+    session.answers[LAST_QUESTION_KEY] = topic ? topic.question : input;
 
     reply.messages.push(answer.text);
     reply.answersQuestion = true;
@@ -235,7 +242,9 @@ export class ConversationService {
     if (followUps.length > 0 && node.followUpsText) {
       session.answers[FOLLOW_UPS_KEY] = {
         questions: followUps,
-        chunkIds: answer.sources.map((s) => s.chunk_id),
+        // Параграф целиком, а не только часть, которую процитировала модель:
+        // ответ на кнопку может лежать в соседнем абзаце того же параграфа.
+        chunkIds: [...new Set(answer.sources.map((s) => paragraphChunkId(s.chunk_id)))],
       } satisfies FollowUpMemory;
       reply.messages.push(node.followUpsText);
       reply.options = [...followUps, ...reply.options];
@@ -575,6 +584,14 @@ interface Finding {
 
 /** Где в сессии лежат последние кнопки «ещё спрашивают». */
 const FOLLOW_UPS_KEY: string = 'lastFollowUps';
+
+/** Где в сессии лежит последний вопрос человека. */
+const LAST_QUESTION_KEY: string = 'lastQuestion';
+
+/** "sgb-3-p81-2" → "sgb-3-p81": база по нему отдаёт все части параграфа. */
+function paragraphChunkId(chunkId: string): string {
+  return chunkId.replace(/(-p\d+[a-z]?)-\d+$/, '$1');
+}
 
 /** Последние кнопки «ещё спрашивают» и куски закона, из которых они взяты. */
 interface FollowUpMemory {

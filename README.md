@@ -114,7 +114,7 @@ Telegram разрешает одну копию бота на токен. Есл
 | Проверить поиск без ответа модели | `docker compose run --rm bot node dist/search.js "вопрос"` |
 | То же без переписывания вопроса | `docker compose run --rm bot node dist/search.js --raw "вопрос"` |
 | Проверка качества | `docker compose run --rm -T bot node dist/evaluate.js > reports/evaluation.md` |
-| Тесты (238) | `npm test` |
+| Тесты (241) | `npm test` |
 | Запуск без Docker | `npm install`, затем `npm run start:dev` (нужен Node.js 22) |
 
 Загрузку запускает только владелец проекта. Повторный запуск с тем же текстом

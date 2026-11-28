@@ -31,11 +31,15 @@ export class RewrittenQuery {
 export class QueryRewriter {
   constructor(private readonly llm: LlmClient) {}
 
-  async rewrite(question: string): Promise<RewrittenQuery> {
+  async rewrite(question: string, previousQuestion?: string): Promise<RewrittenQuery> {
+    const previous: string = previousQuestion
+      ? `PREVIOUS QUESTION:\n${previousQuestion}\n\n`
+      : '';
+
     try {
       const raw: string = await this.llm.generateJson(
         REWRITE_INSTRUCTION,
-        `QUESTION:\n${question}`,
+        `${previous}QUESTION:\n${question}`,
         // Переписать вопрос терминами проще, чем ответить: хватает лёгкой модели.
         'light',
       );

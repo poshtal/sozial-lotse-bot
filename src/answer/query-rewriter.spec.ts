@@ -67,4 +67,14 @@ describe('QueryRewriter', () => {
       rewritten: false,
     });
   });
+
+  it('предыдущий вопрос уходит модели перед текущим', async () => {
+    reply = '{"inScope": true, "query": "Bildungsgutschein Unterlagen"}';
+
+    await rewriter.rewrite('а какие документы для этого нужны?', 'кто может получить Bildungsgutschein?');
+
+    expect(calls[0].user).toBe(
+      'PREVIOUS QUESTION:\nкто может получить Bildungsgutschein?\n\nQUESTION:\nа какие документы для этого нужны?',
+    );
+  });
 });
