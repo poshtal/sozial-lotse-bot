@@ -23,6 +23,8 @@ export const TEXT_BAD_DATE: string =
   'Не смог разобрать дату. Напиши, например: 07.11.2026 или 7 ноября.';
 export const TEXT_FUTURE_DATE: string =
   'Эта дата ещё не наступила. Напиши день, с которого ты уже без работы.';
+export const TEXT_FUTURE_TOO_FAR: string =
+  'Эта дата слишком далеко. Напиши первый день без работы: он может быть и впереди, но не дальше чем через {months} мес.';
 export const TEXT_DATE_SAVED: string = 'Записал дату: {date}.';
 export const TEXT_PERIODS_SAVED: string = 'Записал:';
 export const ANSWER_CONFIRM_YES: string = 'Да, верно';

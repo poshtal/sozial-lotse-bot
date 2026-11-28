@@ -173,7 +173,7 @@ describe('ConversationService', () => {
     expect(badDate.messages).toHaveLength(1);
 
     const future: BotReply = await say('01.01.2030');
-    expect(allText(future)).toContain('ещё не наступила');
+    expect(allText(future)).toContain('слишком далеко');
 
     await say('02.07.2025');
     const badPeriod: BotReply = await say('с августа по сентябрь');
@@ -482,6 +482,51 @@ describe('ConversationService', () => {
 
       expect(allText(reply)).toContain('Что ещё рассказать?');
       expect(reply.options[0]).toBe('Встать на учёт заранее');
+    });
+  });
+
+  describe('увольнение вручили, последний рабочий день впереди', () => {
+    // Сегодня в тестах 10.07.2025.
+    const toDate = async (): Promise<void> => {
+      await say('/start');
+      await say('Окей');
+      await say('Недавно уволили, ничего не получаю');
+    };
+
+    it('дата без года в ближайшем будущем это этот год, и бот сразу напоминает про учёт', async () => {
+      await toDate();
+
+      const reply: BotReply = await say('1 августа');
+
+      expect(allText(reply)).toContain('Записал дату: 01.08.2025');
+      expect(allText(reply)).toContain('arbeitsuchend');
+      expect(allText(reply)).toContain('3 дня');
+    });
+
+    it('прошедшая дата: без напоминания', async () => {
+      await toDate();
+
+      const reply: BotReply = await say('1 июля');
+
+      expect(allText(reply)).toContain('Записал дату: 01.07.2025');
+      expect(allText(reply)).not.toContain('срочное дело');
+    });
+
+    it('дата дальше 7 месяцев: просит другую', async () => {
+      await toDate();
+
+      const reply: BotReply = await say('01.06.2026');
+
+      expect(allText(reply)).toContain('слишком далеко');
+    });
+
+    it('«по сейчас» считается до последнего рабочего дня, а не до сегодня', async () => {
+      await toDate();
+      await say('01.08.2025');
+
+      const reply: BotReply = await say('01.08.2024 - сейчас');
+
+      expect(allText(reply)).toContain('01.08.2024 - 31.07.2025');
     });
   });
 });
