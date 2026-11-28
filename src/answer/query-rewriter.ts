@@ -36,6 +36,8 @@ export class QueryRewriter {
       const raw: string = await this.llm.generateJson(
         REWRITE_INSTRUCTION,
         `QUESTION:\n${question}`,
+        // Переписать вопрос терминами проще, чем ответить: хватает лёгкой модели.
+        'light',
       );
       const parsed: RewrittenQuery | null = parseRewrite(raw);
 

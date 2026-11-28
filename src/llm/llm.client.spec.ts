@@ -132,4 +132,33 @@ describe('LlmClient', () => {
       await new Promise<void>((resolve) => slow.close(() => resolve()));
     }
   });
+
+  it('лёгкие шаги идут в лёгкую модель, ответы в основную', async () => {
+    const settings: Record<string, string> = {
+      GEMINI_API_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+      GEMINI_API_KEY: 'test-key',
+      GEMINI_GENERATION_MODEL: 'gemini-main',
+      GEMINI_LIGHT_MODEL: 'models/gemini-lite',
+    };
+    const twoModels = new LlmClient({
+      get: (key: string): string | undefined => settings[key],
+    } as unknown as ConfigService);
+    responses.push(ok([{ text: '{}' }]), ok([{ text: '{}' }]));
+
+    await twoModels.generateJson('П', 'Д', 'light');
+    await twoModels.generateJson('П', 'Д');
+
+    expect(requests.map((r) => r.url)).toEqual([
+      '/models/gemini-lite:generateContent',
+      '/models/gemini-main:generateContent',
+    ]);
+  });
+
+  it('без GEMINI_LIGHT_MODEL лёгкие шаги идут в основную модель', async () => {
+    responses.push(ok([{ text: '{}' }]));
+
+    await client.generateJson('П', 'Д', 'light');
+
+    expect(requests[0].url).toBe('/models/gemini-test:generateContent');
+  });
 });

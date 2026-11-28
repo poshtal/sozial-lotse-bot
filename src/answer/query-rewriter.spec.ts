@@ -3,15 +3,15 @@ import { QueryRewriter } from './query-rewriter';
 
 describe('QueryRewriter', () => {
   let reply: string | Error;
-  let calls: { system: string; user: string }[];
+  let calls: { system: string; user: string; tier?: string }[];
   let rewriter: QueryRewriter;
 
   beforeEach(() => {
     jest.spyOn(console, 'error').mockImplementation((): void => undefined);
     calls = [];
     const llm = {
-      generateJson: async (system: string, user: string): Promise<string> => {
-        calls.push({ system, user });
+      generateJson: async (system: string, user: string, tier?: string): Promise<string> => {
+        calls.push({ system, user, tier });
         if (reply instanceof Error) {
           throw reply;
         }
@@ -29,6 +29,8 @@ describe('QueryRewriter', () => {
     expect(result).toEqual({ inScope: true, query: 'Sperrzeit Arbeitsaufgabe', rewritten: true });
     expect(calls[0].user).toBe('QUESTION:\nдадут ли денег, если сам ушёл?');
     expect(calls[0].system).toContain('Не отвечай на него');
+    // Переписывание идёт через лёгкую модель: у неё свой дневной лимит.
+    expect(calls[0].tier).toBe('light');
   });
 
   it('вопрос не по теме отмечается; без area считается «прочее»', async () => {

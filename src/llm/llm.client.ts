@@ -14,6 +14,8 @@ export class LlmClient {
   private readonly apiUrl: string;
   private readonly apiKey: string;
   private readonly model: string;
+  /** Модель для простых подготовительных шагов. Нет: та же, что для ответов. */
+  private readonly lightModel: string;
   private readonly retryWaitMs: number;
   private readonly maxAttempts: number = 3;
   private readonly timeoutMs: number;
@@ -26,6 +28,11 @@ export class LlmClient {
     this.model = (
       this.configService.get<string>('GEMINI_GENERATION_MODEL') ?? ''
     ).replace(/^models\//, '');
+    // У бесплатного Gemini дневной лимит у каждой модели свой. Лёгкая модель
+    // для переписывания вопроса снимает с основной половину запросов.
+    this.lightModel =
+      (this.configService.get<string>('GEMINI_LIGHT_MODEL') ?? '').replace(/^models\//, '') ||
+      this.model;
     this.retryWaitMs = Number(
       this.configService.get<string>('LLM_RETRY_WAIT_MS') ?? 4000,
     );
@@ -40,11 +47,15 @@ export class LlmClient {
    *
    * @param systemInstruction правила для модели: кто она и что ей можно
    * @param userContent данные запроса: контекст и вопрос человека
+   * @param tier "light" для простых шагов: модель из GEMINI_LIGHT_MODEL
    */
   async generateJson(
     systemInstruction: string,
     userContent: string,
+    tier: 'main' | 'light' = 'main',
   ): Promise<string> {
+    const model: string = tier === 'light' ? this.lightModel : this.model;
+
     if (this.apiKey === '' || this.model === '') {
       throw new Error(
         'GEMINI_API_KEY and GEMINI_GENERATION_MODEL should be set in .env',
@@ -66,7 +77,7 @@ export class LlmClient {
       let response: Response;
 
       try {
-        response = await fetch(`${this.apiUrl}/models/${this.model}:generateContent`, {
+        response = await fetch(`${this.apiUrl}/models/${model}:generateContent`, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
